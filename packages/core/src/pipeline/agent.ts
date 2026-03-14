@@ -107,17 +107,6 @@ const TOOLS: ReadonlyArray<ToolDefinition> = [
     },
   },
   {
-    name: "web_search",
-    description: "搜索互联网。用于查找题材相关资料、避免套路化、获取灵感。",
-    parameters: {
-      type: "object",
-      properties: {
-        query: { type: "string", description: "搜索关键词" },
-      },
-      required: ["query"],
-    },
-  },
-  {
     name: "web_fetch",
     description: "抓取指定URL的文本内容。用于读取搜索结果中的详细页面。",
     parameters: {
@@ -185,11 +174,10 @@ export async function runAgentLoop(
 | read_truth_files | 读取长期记忆（状态卡、资源账本、伏笔池）和设定（世界观、卷纲、本书规则） |
 | create_book | 建书，生成世界观、卷纲、本书规则（自动加载题材 genre profile） |
 | write_draft | 写一章草稿（自动加载 genre profile + book_rules） |
-| audit_chapter | 审计章节（27维度，按题材条件启用，含AI痕迹+敏感词检测） |
+| audit_chapter | 审计章节（32维度，按题材条件启用，含AI痕迹+敏感词检测） |
 | revise_chapter | 修订章节（支持 polish/rewrite/rework/spot-fix/anti-detect 五种模式） |
 | write_full_pipeline | 完整管线：写 → 审 → 改（如需要） |
 | scan_market | 扫描平台排行榜，分析市场趋势 |
-| web_search | 搜索互联网，获取题材资料或灵感 |
 | web_fetch | 抓取指定URL的文本内容 |
 | import_style | 从参考文本生成文风指南（统计+LLM分析） |
 | import_canon | 从正传导入正典参照，启用番外模式 |
@@ -217,8 +205,7 @@ export async function runAgentLoop(
 - 用户说了书名/bookId → 直接操作，不需要先 list_books
 - 每完成一步，简要汇报进展
 - 仿写流程：用户提供参考文本 → import_style → 生成 style_guide.md，后续写作自动参照
-- 番外流程：先 create_book 建番外书 → import_canon 导入正传正典 → 然后正常 write_draft
-- web_search 可用于建书前调研题材、查找避免套路化的灵感`,
+- 番外流程：先 create_book 建番外书 → import_canon 导入正传正典 → 然后正常 write_draft`,
     },
     { role: "user", content: instruction },
   ];
@@ -365,12 +352,6 @@ async function executeTool(
         results.push(result);
       }
       return JSON.stringify(results);
-    }
-
-    case "web_search": {
-      const { searchWeb } = await import("../utils/web-search.js");
-      const result = await searchWeb(args.query as string);
-      return JSON.stringify(result);
     }
 
     case "web_fetch": {

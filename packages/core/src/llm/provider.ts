@@ -120,6 +120,7 @@ export async function chatCompletion(
   options?: {
     readonly temperature?: number;
     readonly maxTokens?: number;
+    readonly webSearch?: boolean;
   },
 ): Promise<LLMResponse> {
   try {
@@ -131,9 +132,9 @@ export async function chatCompletion(
       return await chatCompletionAnthropic(client._anthropic!, model, messages, resolved, client.defaults.thinkingBudget);
     }
     if (client.apiFormat === "responses") {
-      return await chatCompletionOpenAIResponses(client._openai!, model, messages, resolved);
+      return await chatCompletionOpenAIResponses(client._openai!, model, messages, resolved, options?.webSearch);
     }
-    return await chatCompletionOpenAIChat(client._openai!, model, messages, resolved);
+    return await chatCompletionOpenAIChat(client._openai!, model, messages, resolved, options?.webSearch);
   } catch (error) {
     throw wrapLLMError(error);
   }
@@ -175,6 +176,7 @@ async function chatCompletionOpenAIChat(
   model: string,
   messages: ReadonlyArray<LLMMessage>,
   options: { readonly temperature: number; readonly maxTokens: number },
+  webSearch?: boolean,
 ): Promise<LLMResponse> {
   const stream = await client.chat.completions.create({
     model,
@@ -185,6 +187,7 @@ async function chatCompletionOpenAIChat(
     temperature: options.temperature,
     max_tokens: options.maxTokens,
     stream: true,
+    ...(webSearch ? { web_search_options: { search_context_size: "medium" as const } } : {}),
   });
 
   const chunks: string[] = [];
@@ -313,11 +316,16 @@ async function chatCompletionOpenAIResponses(
   model: string,
   messages: ReadonlyArray<LLMMessage>,
   options: { readonly temperature: number; readonly maxTokens: number },
+  webSearch?: boolean,
 ): Promise<LLMResponse> {
   const input: OpenAI.Responses.ResponseInputItem[] = messages.map((m) => ({
     role: m.role as "system" | "user" | "assistant",
     content: m.content,
   }));
+
+  const tools: OpenAI.Responses.Tool[] | undefined = webSearch
+    ? [{ type: "web_search_preview" as const }]
+    : undefined;
 
   const stream = await client.responses.create({
     model,
@@ -325,6 +333,7 @@ async function chatCompletionOpenAIResponses(
     temperature: options.temperature,
     max_output_tokens: options.maxTokens,
     stream: true,
+    ...(tools ? { tools } : {}),
   });
 
   const chunks: string[] = [];
