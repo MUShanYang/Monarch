@@ -82,7 +82,7 @@ Real testing showed `rewrite` mode introduces 6x more AI markers than the origin
 ### Other v0.4 Changes
 
 - Audit dimensions expanded from 26 to 32 (+4 spinoff dims + sensitive word check + reader expectation management)
-- Auditor web search: era-research genres can call DuckDuckGo to verify real events/people/geography
+- Auditor web search: era-research genres can verify real events/people/geography online (native search)
 - Scheduler rewrite: AI-paced (15min cycles), parallel book processing, immediate retry, daily cap
 - New `spot-fix` revise mode (targeted repair)
 - `additionalAuditDimensions` in `book_rules.md` now supports name-string matching
@@ -298,7 +298,7 @@ inkos agent "Write the next chapter, focus on master-disciple conflict"
 inkos agent "Scan market trends first, then create a new book based on results"
 ```
 
-9 built-in tools (write_draft, audit_chapter, revise_chapter, scan_market, create_book, get_book_status, read_truth_files, list_books, write_full_pipeline), with the LLM deciding call order via tool-use.
+12 built-in tools (write_draft, audit_chapter, revise_chapter, scan_market, create_book, get_book_status, read_truth_files, list_books, write_full_pipeline, web_fetch, import_style, import_canon), with the LLM deciding call order via tool-use.
 
 ## Quick Start
 
@@ -434,7 +434,7 @@ inkos/
 │   │   ├── llm/           # OpenAI + Anthropic dual SDK (streaming)
 │   │   ├── notify/        # Telegram, Feishu, WeCom, Webhook
 │   │   └── models/        # Zod schema validation
-│   └── cli/               # Commander.js CLI (18 commands)
+│   └── cli/               # Commander.js CLI (20 commands)
 │       └── commands/      # init, book, write, draft, audit, revise, agent, review, detect, style...
 └── (planned) studio/      # Web UI for review and editing
 ```
@@ -446,7 +446,7 @@ TypeScript monorepo managed with pnpm workspaces.
 - [x] Full pipeline (radar → architect → writer → auditor → reviser)
 - [x] Canonical truth files + continuity audit
 - [x] Built-in writing rule system
-- [x] Full CLI (18 commands)
+- [x] Full CLI (20 commands)
 - [x] State snapshots + chapter rewrite
 - [x] Daemon mode
 - [x] Notifications (Telegram / Feishu / WeCom)
