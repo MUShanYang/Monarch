@@ -186,6 +186,14 @@ export async function launchTui(
     return (originalStderrWrite as Function)(chunk, ...args);
   };
 
+  // Enter alternate screen buffer — isolates Ink rendering from the primary
+  // terminal view. This prevents IME XPC corruption on Terminal.app (the IME's
+  // NSRemoteView interacts with the primary screen; the alt screen is separate).
+  // Claude Code uses the same approach via <AlternateScreen> + DEC 1049.
+  const ENTER_ALT = "\x1b[?1049h";
+  const EXIT_ALT = "\x1b[?1049l";
+  process.stdout.write(ENTER_ALT);
+
   try {
     await animateStartup(version, basename(projectRoot), session.activeBookId, modelInfo);
 
@@ -201,13 +209,12 @@ export async function launchTui(
       }),
       {
         exitOnCtrlC: true,
-        // Terminal.app crashes with rapid ANSI redraws + CJK IME input;
-        // halve the frame rate to reduce rendering pressure.
         ...(isAppleTerminal && { maxFps: 15 }),
       },
     );
     await app.waitUntilExit();
   } finally {
+    process.stdout.write(EXIT_ALT);
     process.emitWarning = originalEmitWarning;
     process.stderr.write = originalStderrWrite;
   }
