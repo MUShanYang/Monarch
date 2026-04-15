@@ -870,6 +870,14 @@ export function createStudioServer(initialConfig: ProjectConfig, root: string) {
     return c.json({ ok: true });
   });
 
+  app.get("/api/v1/services/:service/secret", async (c) => {
+    const service = c.req.param("service");
+    const secrets = await loadSecrets(root);
+    return c.json({
+      apiKey: secrets.services[service]?.apiKey ?? "",
+    });
+  });
+
   app.get("/api/v1/services/:service/models", async (c) => {
     const service = c.req.param("service");
     const apiKey = c.req.query("apiKey") || await getServiceApiKey(root, service);

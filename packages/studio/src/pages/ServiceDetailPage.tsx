@@ -106,6 +106,19 @@ export function ServiceDetailPage({ serviceId, nav }: { serviceId: string; nav: 
   const effectiveServiceId = isCustom ? `custom:${resolvedCustomName}` : serviceId;
   const label = isCustom ? (customName || persistedCustomName || "自定义服务") : (svc?.label ?? serviceId);
 
+  useEffect(() => {
+    let cancelled = false;
+    void fetchJson<{ apiKey?: string }>(`/services/${encodeURIComponent(effectiveServiceId)}/secret`)
+      .then((data) => {
+        if (cancelled) return;
+        if (typeof data.apiKey === "string") {
+          setApiKey(data.apiKey);
+        }
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [effectiveServiceId]);
+
   if (loading) return <DetailSkeleton />;
 
   // -- Derived state --

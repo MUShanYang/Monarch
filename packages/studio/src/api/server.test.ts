@@ -682,6 +682,21 @@ describe("createStudioServer daemon lifecycle", () => {
     });
   });
 
+  it("returns stored service secret for detail page rehydration", async () => {
+    loadSecretsMock.mockResolvedValue({
+      services: {
+        moonshot: { apiKey: "sk-moon" },
+      },
+    });
+
+    const { createStudioServer } = await import("./server.js");
+    const app = createStudioServer(cloneProjectConfig() as never, root);
+
+    const response = await app.request("http://localhost/api/v1/services/moonshot/secret");
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ apiKey: "sk-moon" });
+  });
+
   it("rejects create requests when a complete book with the same id already exists", async () => {
     await mkdir(join(root, "books", "existing-book", "story"), { recursive: true });
     await writeFile(join(root, "books", "existing-book", "book.json"), JSON.stringify({ id: "existing-book" }), "utf-8");
