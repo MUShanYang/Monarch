@@ -14,6 +14,19 @@ export interface ArchitectOutput {
   readonly pendingHooks: string;
 }
 
+const DEFAULT_CURRENT_STATE = `| 字段 | 值 |
+|------|-----|
+| 当前章节 | 0 |
+| 当前位置 | 待定 |
+| 主角状态 | 初始状态 |
+| 当前目标 | 待定 |
+| 当前限制 | 无 |
+| 当前敌我 | 无 |
+| 当前冲突 | 无 |`;
+
+const DEFAULT_PENDING_HOOKS = `| hook_id | 起始章节 | 类型 | 状态 | 最近推进 | 预期回收 | 回收节奏 | 备注 |
+|---------|----------|------|------|----------|----------|----------|------|`;
+
 export class ArchitectAgent extends BaseAgent {
   get name(): string {
     return "architect";
@@ -804,9 +817,12 @@ ${trimmed}\n`;
       parsedSections.set(normalizedName, content.slice(start, end).trim());
     }
 
-    const extract = (name: string): string => {
+    const extract = (name: string, fallback?: string): string => {
       const section = parsedSections.get(this.normalizeSectionName(name));
       if (!section) {
+        if (fallback !== undefined) {
+          return fallback;
+        }
         throw new Error(`Architect output missing required section: ${name}`);
       }
       if (name !== "pending_hooks") {
@@ -819,8 +835,8 @@ ${trimmed}\n`;
       storyBible: extract("story_bible"),
       volumeOutline: extract("volume_outline"),
       bookRules: extract("book_rules"),
-      currentState: extract("current_state"),
-      pendingHooks: extract("pending_hooks"),
+      currentState: extract("current_state", DEFAULT_CURRENT_STATE),
+      pendingHooks: extract("pending_hooks", DEFAULT_PENDING_HOOKS),
     };
   }
 
