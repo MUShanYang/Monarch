@@ -194,4 +194,42 @@ describe("loadProjectConfig local provider auth", () => {
     expect(config.llm.model).toBe("corp-chat");
     expect(config.llm.apiKey).toBe("sk-corp");
   });
+
+  it("falls back to env when Studio config is still the empty bootstrap state", async () => {
+    root = await mkdtemp(join(tmpdir(), "inkos-config-loader-studio-bootstrap-"));
+    for (const key of ENV_KEYS) {
+      previousEnv.set(key, process.env[key]);
+      process.env[key] = "";
+    }
+
+    process.env.INKOS_LLM_PROVIDER = "openai";
+    process.env.INKOS_LLM_BASE_URL = "https://api-vip.codex-for.me/v1";
+    process.env.INKOS_LLM_MODEL = "gpt-5.4";
+    process.env.INKOS_LLM_API_KEY = "sk-env";
+
+    await writeFile(join(root, "inkos.json"), JSON.stringify({
+      name: "studio-bootstrap-project",
+      version: "0.1.0",
+      language: "zh",
+      llm: {
+        provider: "openai",
+        service: "custom",
+        configSource: "studio",
+        baseUrl: "",
+        model: "",
+        apiFormat: "chat",
+        stream: true,
+      },
+      notify: [],
+    }, null, 2), "utf-8");
+    await writeFile(join(root, ".env"), "", "utf-8");
+
+    const config = await loadProjectConfig(root);
+
+    expect(config.llm.configSource).toBe("studio");
+    expect(config.llm.provider).toBe("openai");
+    expect(config.llm.baseUrl).toBe("https://api-vip.codex-for.me/v1");
+    expect(config.llm.model).toBe("gpt-5.4");
+    expect(config.llm.apiKey).toBe("sk-env");
+  });
 });

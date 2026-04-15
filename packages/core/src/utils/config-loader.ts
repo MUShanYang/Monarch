@@ -134,7 +134,13 @@ export async function loadProjectConfig(
     }
   }
 
-  if (configSource === "env") {
+  const shouldBootstrapStudioFallbackToEnv = configSource === "studio"
+    && normalizedServices.length === 0
+    && !(typeof llm.apiKey === "string" && llm.apiKey.length > 0)
+    && !(typeof llm.model === "string" && llm.model.length > 0)
+    && !(typeof llm.baseUrl === "string" && llm.baseUrl.length > 0);
+
+  if (configSource === "env" || shouldBootstrapStudioFallbackToEnv) {
     if (env.INKOS_LLM_PROVIDER) llm.provider = env.INKOS_LLM_PROVIDER;
     if (env.INKOS_LLM_BASE_URL) llm.baseUrl = env.INKOS_LLM_BASE_URL;
     if (env.INKOS_LLM_MODEL) llm.model = env.INKOS_LLM_MODEL;
@@ -144,7 +150,7 @@ export async function loadProjectConfig(
   }
   // Extra params from env: INKOS_LLM_EXTRA_<key>=<value>
   const extraFromEnv: Record<string, unknown> = {};
-  if (configSource === "env") {
+  if (configSource === "env" || shouldBootstrapStudioFallbackToEnv) {
     for (const [key, value] of Object.entries(env)) {
       if (key.startsWith("INKOS_LLM_EXTRA_") && value) {
         const paramName = key.slice("INKOS_LLM_EXTRA_".length);
@@ -162,14 +168,14 @@ export async function loadProjectConfig(
   if (Object.keys(extraFromEnv).length > 0) {
     llm.extra = { ...(llm.extra as Record<string, unknown> ?? {}), ...extraFromEnv };
   }
-  if (configSource === "env" && env.INKOS_LLM_API_FORMAT) llm.apiFormat = env.INKOS_LLM_API_FORMAT;
+  if ((configSource === "env" || shouldBootstrapStudioFallbackToEnv) && env.INKOS_LLM_API_FORMAT) llm.apiFormat = env.INKOS_LLM_API_FORMAT;
   config.llm = llm;
 
   // Global language override
   if (env.INKOS_DEFAULT_LANGUAGE) config.language = env.INKOS_DEFAULT_LANGUAGE;
 
   // API key ONLY from env — never stored in inkos.json
-  const apiKey = configSource === "env"
+  const apiKey = (configSource === "env" || shouldBootstrapStudioFallbackToEnv)
     ? env.INKOS_LLM_API_KEY || (typeof llm.apiKey === "string" ? llm.apiKey : "")
     : (typeof llm.apiKey === "string" ? llm.apiKey : "");
   const provider = typeof llm.provider === "string" ? llm.provider : undefined;
