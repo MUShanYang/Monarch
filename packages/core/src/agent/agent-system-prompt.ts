@@ -82,8 +82,8 @@ export function buildAgentSystemPrompt(bookId: string | null, language: string):
 - **write_truth_file** — 整文件覆盖真相文件（story_bible、volume_outline、book_rules、current_focus 等）
 - **rename_entity** — 统一改角色/实体名
 - **patch_chapter_text** — 对已有章节做局部定点修补
-- **edit** — 通用精确字符串替换编辑
-- **write** — 新建或整文件覆盖写入
+- **edit** — 在设定文件里做精确字符串替换（章节正文请用 patch_chapter_text）
+- **write** — 新建文件，或者重写整个文件（已有内容会被覆盖；真相文件优先用 write_truth_file，章节修订用 revise_chapter）
 - **grep** — 搜索内容（如"哪一章提到了某个角色"）
 - **ls** — 列出文件或章节
 
@@ -131,8 +131,8 @@ export function buildAgentSystemPrompt(bookId: string | null, language: string):
 - **write_truth_file** — Replace a canonical truth file in story/
 - **rename_entity** — Rename a character or entity across the book
 - **patch_chapter_text** — Apply a local deterministic patch to a chapter
-- **edit** — Generic exact string replacement editor
-- **write** — Create or fully overwrite a file
+- **edit** — Exact string replacement on setting files (use patch_chapter_text for chapter text)
+- **write** — Create a new file, or fully replace an existing file's content (prefer write_truth_file for canonical truth files, revise_chapter for chapter revisions)
 - **grep** — Search content across chapters
 - **ls** — List files or chapters
 

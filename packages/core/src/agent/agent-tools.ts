@@ -393,8 +393,9 @@ export function createEditTool(projectRoot: string): AgentTool<typeof EditParams
   return {
     name: "edit",
     description:
-      "Edit a file using exact string replacement. " +
-      "old_string must appear exactly once in the file. Path is relative to books/.",
+      "Edit a file under books/ via exact string replacement. " +
+      "old_string must appear exactly once in the file. " +
+      "For chapter text use patch_chapter_text; for canonical truth files (story_bible/volume_outline/book_rules/current_focus) prefer write_truth_file.",
     label: "Edit File",
     parameters: EditParams,
     async execute(
@@ -436,8 +437,9 @@ export function createWriteFileTool(projectRoot: string): AgentTool<typeof Write
   return {
     name: "write",
     description:
-      "Create a new file or overwrite an existing file. " +
-      "Path is relative to books/. Parent directories are created automatically.",
+      "Create a new file, or fully replace an existing file's content under books/. " +
+      "Parent directories are created automatically. Existing content is overwritten silently — " +
+      "for canonical truth files prefer write_truth_file; for chapter revisions use revise_chapter.",
     label: "Write File",
     parameters: WriteFileParams,
     async execute(
