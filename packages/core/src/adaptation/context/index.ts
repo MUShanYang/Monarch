@@ -3,5 +3,3 @@ export type { LexicalState, DnaCompressorInput, DnaCompressorOutput, Degradation
 export { AttentionMultiplierManager, createAttentionMultiplierManager, applyAttentionMultipliers } from "./attention-multipliers.js";
 export type { AttentionMultiplier, AttentionProfile, WeightedDNAField, AttentionMultiplierConfig } from "./attention-multipliers.js";
 export { AttentionMultiplierSchema, AttentionProfileSchema, WeightedDNAFieldSchema, AttentionMultiplierConfigSchema } from "./attention-multipliers.js";
-export { createDefaultPhysicalState, derivePhysicalConstraints, updatePhysicalState, PhysicalStateSchema } from "./physical-state.js";
-export type { PhysicalState } from "./physical-state.js";
