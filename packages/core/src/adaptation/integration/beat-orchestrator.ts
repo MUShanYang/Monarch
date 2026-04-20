@@ -11,6 +11,7 @@ import {
   type GenerationBatch,
 } from "../beat/speculative-generator.js";
 import { parallel3 } from "../state/event-sourcer.js";
+import type { AdaptationProgressManager } from "./progress-manager.js";
 
 function stripThinkingTags(text: string): string {
   return text.replace(/<thinking>[\s\S]*?<\/thinking>/gi, "");
@@ -140,15 +141,25 @@ export class BeatOrchestrator {
 
   async executeSpeculativeCalls(
     request: BeatGenerationRequest,
-    hooks: AdaptationHooks
+    hooks: AdaptationHooks,
+    progress?: AdaptationProgressManager
   ): Promise<BeatSelectionResult> {
     const candidates: SpeculativeCandidate[] = [];
     const batches = this.prepareSpeculativeBatches(request);
 
-    console.log(`[monarch] 执行 3×3 speculative 生成：按 3 个串行批次，每批 3 路并行`);
+    if (progress) {
+      progress.updateProgress(`3×3 speculative 生成：3 个批次`);
+    } else {
+      console.log(`[monarch] 执行 3×3 speculative 生成：按 3 个串行批次，每批 3 路并行`);
+    }
+
     for (let batchIndex = 0; batchIndex < batches.length; batchIndex += 1) {
       const batch = batches[batchIndex]!;
-      console.log(`[monarch] speculative 批次 ${batchIndex + 1}/${batches.length} 开始`);
+      if (progress) {
+        progress.updateProgress(`批次 ${batchIndex + 1}/${batches.length}`);
+      } else {
+        console.log(`[monarch] speculative 批次 ${batchIndex + 1}/${batches.length} 开始`);
+      }
 
       const proseResults = await parallel3([
         async () => {
@@ -167,14 +178,22 @@ export class BeatOrchestrator {
 
       for (const { config, prose } of proseResults) {
         if (!prose) {
-          console.log(`[monarch] 候选 ${config.variantId}/${config.syntacticVariantId ?? "none"}：LLM 返回空内容，跳过`);
+          if (progress) {
+            progress.log(`候选 ${config.variantId}/${config.syntacticVariantId ?? "none"}：空内容`);
+          } else {
+            console.log(`[monarch] 候选 ${config.variantId}/${config.syntacticVariantId ?? "none"}：LLM 返回空内容，跳过`);
+          }
           continue;
         }
 
         const wordCount = countVisibleWords(prose);
-        console.log(
-          `[monarch] 候选 ${config.variantId}/${config.syntacticVariantId ?? "none"}：生成 ${wordCount} 字，正在审计...`
-        );
+        if (progress) {
+          progress.updateProgress(`候选 ${config.variantId}：${wordCount} 字，审计中...`);
+        } else {
+          console.log(
+            `[monarch] 候选 ${config.variantId}/${config.syntacticVariantId ?? "none"}：生成 ${wordCount} 字，正在审计...`
+          );
+        }
 
         const postResult = await hooks.postGenerationBeat({
           prose,
@@ -189,13 +208,21 @@ export class BeatOrchestrator {
         const warnIssues = issues.filter((i: any) => i.severity === "warning");
         if (!passed && errorIssues.length > 0) {
           const first3 = errorIssues.slice(0, 3).map((i: any) => `[${i.code}] ${i.message}`).join("；");
-          console.log(
-            `[monarch] 候选 ${config.variantId}/${config.syntacticVariantId ?? "none"}：审计${passed}，${errorIssues.length} 个错误，${warnIssues.length} 个警告。前 3 个错误：${first3}`
-          );
+          if (progress) {
+            progress.log(`候选 ${config.variantId}：审计${passed}，${errorIssues.length} 个错误`);
+          } else {
+            console.log(
+              `[monarch] 候选 ${config.variantId}/${config.syntacticVariantId ?? "none"}：审计${passed}，${errorIssues.length} 个错误，${warnIssues.length} 个警告。前 3 个错误：${first3}`
+            );
+          }
         } else {
-          console.log(
-            `[monarch] 候选 ${config.variantId}/${config.syntacticVariantId ?? "none"}：审计${passed}，${errorIssues.length} 个错误，${warnIssues.length} 个警告`
-          );
+          if (progress) {
+            progress.log(`候选 ${config.variantId}：审计${passed}`);
+          } else {
+            console.log(
+              `[monarch] 候选 ${config.variantId}/${config.syntacticVariantId ?? "none"}：审计${passed}，${errorIssues.length} 个错误，${warnIssues.length} 个警告`
+            );
+          }
         }
 
         const candidate = this.createCandidateFromProse(
@@ -210,7 +237,11 @@ export class BeatOrchestrator {
     }
 
     if (candidates.length === 0) {
-      console.log(`[monarch] 所有候选均未通过，建议重试`);
+      if (progress) {
+        progress.log(`所有候选均未通过，建议重试`);
+      } else {
+        console.log(`[monarch] 所有候选均未通过，建议重试`);
+      }
       return BeatSelectionResultSchema.parse({
         candidates: [],
         allDisqualified: true,
@@ -219,7 +250,7 @@ export class BeatOrchestrator {
       });
     }
 
-    const selection = this.selectBestCandidate(candidates, request.dna);
+    const selection = this.selectBestCandidate(candidates, request.dna, progress);
     const selectedCandidate = candidates.find(
       (candidate) =>
         candidate.variantId === selection.selectedVariant &&
@@ -349,12 +380,17 @@ export class BeatOrchestrator {
 
   selectBestCandidate(
     candidates: SpeculativeCandidate[],
-    dna: NarrativeDNA
+    dna: NarrativeDNA,
+    progress?: AdaptationProgressManager
   ): BeatSelectionResult {
     const validCandidates = candidates.filter((c) => !c.disqualified);
 
     if (validCandidates.length === 0) {
-      console.log(`[monarch] 所有候选均被审计拒绝，降级使用得分最高的候选`);
+      if (progress) {
+        progress.log(`所有候选均被审计拒绝，降级使用得分最高的候选`);
+      } else {
+        console.log(`[monarch] 所有候选均被审计拒绝，降级使用得分最高的候选`);
+      }
       const bestOfBad = candidates.reduce((best, c) => c.score > best.score ? c : best, candidates[0]!);
       return BeatSelectionResultSchema.parse({
         selectedVariant: bestOfBad.variantId,

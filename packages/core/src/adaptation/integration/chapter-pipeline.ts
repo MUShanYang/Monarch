@@ -54,6 +54,7 @@ import {
   AdaptationPipelineOrchestrator,
   type PipelineContext,
 } from "../pipeline/adaptation-orchestrator.js";
+import { AdaptationProgressManager } from "./progress-manager.js";
 
 export interface ChapterPipelineLLMInterface extends BeatOrchestratorLLMInterface {
   callLLM(
@@ -248,7 +249,8 @@ export class ChapterPipelineAdapter {
   }
 
   async initialize(): Promise<void> {
-    console.log("[monarch] 正在加载章节快照、意图编译、词法监控初始化...");
+    const progress = new AdaptationProgressManager();
+    progress.startPhase("loading", "正在加载章节快照、意图编译、词法监控初始化...");
     await this.hooks.initialize();
     this.currentSnapshot = this.hooks.getSnapshot();
     await this.loadMotifIndex();
@@ -258,7 +260,7 @@ export class ChapterPipelineAdapter {
       this.workflow = this.createWorkflow();
     }
 
-    console.log("[monarch] adaptation 工作流初始化完成（快照 + motif + curiosity + workflow）");
+    progress.completePhase("初始化完成");
   }
 
   setLLMInterface(llmInterface: ChapterPipelineLLMInterface): void {
@@ -270,6 +272,7 @@ export class ChapterPipelineAdapter {
   }
 
   async generateChapter(config: ChapterGenerationConfig): Promise<ChapterGenerationResult> {
+    const progress = new AdaptationProgressManager();
     const result: ChapterGenerationResult = {
       chapterNumber: config.chapterNumber,
       prose: "",
@@ -286,14 +289,14 @@ export class ChapterPipelineAdapter {
       await this.initialize();
 
       const beatPlan = this.planBeats(config);
-      console.log(`[monarch] 节拍规划完成：共 ${beatPlan.length} 个节拍，类型序列：${beatPlan.join(" / ")}`);
+      progress.log(`节拍规划完成：共 ${beatPlan.length} 个节拍，类型序列：${beatPlan.join(" / ")}`);
 
       let currentWordCount = 0;
       let lastBeatSummary = "";
 
       for (let i = 0; i < beatPlan.length; i += 1) {
         if (currentWordCount >= config.targetWordRange[1]) {
-          console.log(`[monarch] 已达到目标字数上限 ${config.targetWordRange[1]}，停止生成`);
+          progress.log(`已达到目标字数上限 ${config.targetWordRange[1]}，停止生成`);
           break;
         }
         if (result.beats.length >= config.maxBeats) {
@@ -303,7 +306,7 @@ export class ChapterPipelineAdapter {
         const plannedType = beatPlan[i]!;
         const beatType = this.adjustBeatType(plannedType, result.beats);
         const tensionLevel = this.calculateTension(i, beatPlan.length, config.startTension, config.endTension);
-        console.log(`[monarch] 节拍 ${i + 1}/${beatPlan.length}：${beatType}（张力 ${tensionLevel}/10，当前字数 ${currentWordCount}）`);
+        progress.startPhase("writing", `节拍 ${i + 1}/${beatPlan.length}：${beatType}（张力 ${tensionLevel}/10）`);
 
         const step = await this.generateBeat({
           beatIndex: i,
@@ -331,11 +334,11 @@ export class ChapterPipelineAdapter {
           result.prose += `${cleanProse}\n\n`;
           const beatWordCount = countTextLength(cleanProse);
           currentWordCount += beatWordCount;
-          console.log(`[monarch] 节拍 ${i + 1} 完成：${beatWordCount} 字，累计 ${currentWordCount} 字`);
+          progress.completePhase(`节拍 ${i + 1} 完成：${beatWordCount} 字，累计 ${currentWordCount} 字`);
           lastBeatSummary = cleanProse.substring(0, 150);
           this.updateMotifsFromBeat(step, config.chapterNumber);
         } else {
-          console.log(`[monarch] 节拍 ${i + 1} 跳过：无有效内容`);
+          progress.log(`节拍 ${i + 1} 跳过：无有效内容`);
         }
 
         if (step.events.length > 0) {
@@ -349,10 +352,12 @@ export class ChapterPipelineAdapter {
         }
 
         if (this.shouldExitScene(result.beats, currentWordCount)) {
-          console.log("[monarch] scene exit 条件已满足，结束本章 adaptation 生成");
+          progress.log("scene exit 条件已满足，结束本章 adaptation 生成");
           break;
         }
       }
+
+      progress.cleanup();
 
       result.wordCount = currentWordCount;
       result.beatCount = result.beats.length;

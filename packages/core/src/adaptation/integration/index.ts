@@ -6,3 +6,5 @@ export type { BeatGenerationRequest, SpeculativeCandidate, BeatSelectionResult, 
 
 export { ChapterPipelineAdapter, createChapterPipelineAdapter, generateChapterWithAdaptation } from "./chapter-pipeline.js";
 export type { ChapterGenerationConfig, BeatGenerationStep, ChapterGenerationResult } from "./chapter-pipeline.js";
+
+export { AdaptationProgressManager } from "./progress-manager.js";
