@@ -99,6 +99,7 @@ describe("CLI integration", () => {
       expect(config.llm).toBeDefined();
       expect(config.llm.provider).toBeDefined();
       expect(config.llm.model).toBeDefined();
+      expect(config.writeMode).toBe("adaptation");
       expect(config.daemon).toBeDefined();
       expect(config.notify).toEqual([]);
     });
@@ -193,6 +194,15 @@ describe("CLI integration", () => {
       const raw = await readFile(join(projectDir, "inkos.json"), "utf-8");
       const config = JSON.parse(raw);
       expect(config.inputGovernanceMode).toBe("v2");
+    });
+
+    it("sets write mode", async () => {
+      const output = run(["config", "set", "writeMode", "standard"]);
+      expect(output).toContain("Set writeMode = standard");
+
+      const raw = await readFile(join(projectDir, "inkos.json"), "utf-8");
+      const config = JSON.parse(raw);
+      expect(config.writeMode).toBe("standard");
     });
   });
 

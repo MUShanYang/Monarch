@@ -42,7 +42,7 @@ export function createClient(config: ProjectConfig) {
 export function buildPipelineConfig(
   config: ProjectConfig,
   root: string,
-  extra?: Partial<Pick<PipelineConfig, "notifyChannels" | "radarSources" | "externalContext" | "inputGovernanceMode">> & {
+  extra?: Partial<Pick<PipelineConfig, "notifyChannels" | "radarSources" | "externalContext" | "inputGovernanceMode" | "writeMode" | "adaptationMaxRetries">> & {
     readonly quiet?: boolean;
     readonly logFile?: NodeJS.WritableStream;
   },
@@ -83,6 +83,8 @@ export function buildPipelineConfig(
     defaultLLMConfig: config.llm,
     modelOverrides: config.modelOverrides,
     inputGovernanceMode: extra?.inputGovernanceMode ?? config.inputGovernanceMode,
+    writeMode: extra?.writeMode ?? config.writeMode,
+    adaptationMaxRetries: extra?.adaptationMaxRetries,
     notifyChannels: extra?.notifyChannels ?? config.notify,
     radarSources: extra?.radarSources,
     externalContext: extra?.externalContext,

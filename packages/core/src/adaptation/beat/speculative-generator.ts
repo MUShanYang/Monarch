@@ -73,6 +73,11 @@ export interface GenerationResult {
   sentenceLengthVariance: number;
 }
 
+export interface GenerationBatch {
+  semanticVariantId?: string;
+  requests: [GenerationRequest, GenerationRequest, GenerationRequest];
+}
+
 export class SpeculativeGenerator {
   private state: GeneratorState;
   private config: Required<SpeculativeGeneratorConfig>;
@@ -89,6 +94,10 @@ export class SpeculativeGenerator {
   }
 
   getGenerationRequests(beat: Beat): GenerationRequest[] {
+    return this.getGenerationBatches(beat).flatMap((batch) => batch.requests);
+  }
+
+  getGenerationBatches(beat: Beat): GenerationBatch[] {
     const requests: GenerationRequest[] = [];
 
     if (!this.config.enableSyntacticVariants) {
@@ -99,7 +108,11 @@ export class SpeculativeGenerator {
           voiceProfile: this.voiceProfile,
         });
       }
-      return requests;
+      return [
+        {
+          requests: requests as [GenerationRequest, GenerationRequest, GenerationRequest],
+        },
+      ];
     }
 
     if (this.state.preferredSyntacticVariant && this.state.consecutiveWins >= this.config.autoRegressionThreshold) {
@@ -113,22 +126,32 @@ export class SpeculativeGenerator {
             voiceProfile: this.voiceProfile,
           });
         }
-        return requests;
+        return [
+          {
+            requests: requests as [GenerationRequest, GenerationRequest, GenerationRequest],
+          },
+        ];
       }
     }
 
+    const batches: GenerationBatch[] = [];
     for (const semantic of SPECULATIVE_VARIANTS) {
+      const batchRequests: GenerationRequest[] = [];
       for (const syntactic of SYNTACTIC_VARIANTS) {
-        requests.push({
+        batchRequests.push({
           beat,
           semanticVariant: semantic,
           syntacticVariant: syntactic,
           voiceProfile: this.voiceProfile,
         });
       }
+      batches.push({
+        semanticVariantId: semantic.id,
+        requests: batchRequests as [GenerationRequest, GenerationRequest, GenerationRequest],
+      });
     }
 
-    return requests;
+    return batches;
   }
 
   buildPromptSuffix(semantic: SpeculativeVariant, syntactic?: SyntacticVariant): string {

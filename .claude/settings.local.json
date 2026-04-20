@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pnpm build *)",
+      "Bash(monarch write *)",
+      "Bash(tee adaptation-write-next-test.log)"
+    ]
+  }
+}

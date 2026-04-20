@@ -288,13 +288,18 @@ describe("chatCompletion via pi-ai", () => {
     vi.unstubAllGlobals();
   });
 
-  it("keeps legacy env custom openai-compatible chat on pi-ai path", async () => {
-    const fetchMock = vi.fn();
+  it("uses native fetch transport for env custom openai-compatible chat, including named custom services", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [{ message: { content: "env native ok" } }],
+        usage: { prompt_tokens: 4, completion_tokens: 3, total_tokens: 7 },
+      }),
+    });
     vi.stubGlobal("fetch", fetchMock);
-    mockCompleteSimple.mockResolvedValue(makeAssistantMessage("legacy ok"));
 
     const client = makeClient(0.7, {
-      service: "custom",
+      service: "custom:内网GPT",
       configSource: "env",
       stream: false,
       _piModel: {
@@ -306,9 +311,10 @@ describe("chatCompletion via pi-ai", () => {
 
     const result = await chatCompletion(client, "gemma-4", [{ role: "user", content: "ping" }]);
 
-    expect(result.content).toBe("legacy ok");
-    expect(mockCompleteSimple).toHaveBeenCalledOnce();
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(result.content).toBe("env native ok");
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(mockCompleteSimple).not.toHaveBeenCalled();
+    expect(mockStreamSimple).not.toHaveBeenCalled();
 
     vi.unstubAllGlobals();
   });

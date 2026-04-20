@@ -23,6 +23,7 @@ export const ConstrainedDecodingSchema = z.object({
 export type ConstrainedDecoding = z.infer<typeof ConstrainedDecodingSchema>;
 
 const DEFAULT_STOP_SEQUENCES: StopSequences = [
+  "\n\n",
   "###",
   "[END]",
   "Note:",
@@ -78,12 +79,7 @@ export function getApiConstraintsForBeat(
     isChapterEnd?: boolean;
   }
 ): ApiConstraints {
-  const baseTokens = BEAT_TYPE_TOKEN_LIMITS[beatType] ?? 150;
-  let maxTokens = Math.ceil(baseTokens * 1.3);
-
-  if (options?.isChapterEnd) {
-    maxTokens += CHAPTER_END_RESERVE_TOKENS;
-  }
+  const maxTokens = calculateMaxTokensFromWordTarget(wordTarget);
 
   const stopSequences = [
     ...DEFAULT_STOP_SEQUENCES,
@@ -143,14 +139,8 @@ export function getApiConstraintsForSpeculative(
     C: 0.75,
   };
 
-  let maxTokens = 131072;
-
-  if (options?.isChapterEnd) {
-    maxTokens += CHAPTER_END_RESERVE_TOKENS;
-  }
-
   return ApiConstraintsSchema.parse({
-    maxTokens,
+    maxTokens: calculateMaxTokensFromWordTarget(wordTarget),
     stopSequences: DEFAULT_STOP_SEQUENCES,
     temperature: variantTemps[variantId],
     topP: 0.9,
@@ -209,8 +199,16 @@ export function estimateTokensFromWords(wordCount: number): number {
   return Math.ceil(wordCount * 1.3);
 }
 
+export function calculateMaxTokensFromWordTarget(wordTarget: [number, number]): number {
+  return Math.ceil(wordTarget[1] * 1.7) + CHAPTER_END_RESERVE_TOKENS;
+}
+
 export function estimateTokensFromText(text: string): number {
-  const words = text.split(/\s+/).filter((w) => w.length > 0).length;
+  const cleaned = text.replace(/<[^>]*>/g, "");
+  const chineseChars = cleaned.replace(/[^\u4e00-\u9fff]/g, "").length;
+  const words = chineseChars > 0
+    ? chineseChars
+    : cleaned.split(/\s+/).filter((w) => w.length > 0).length;
   return estimateTokensFromWords(words);
 }
 
@@ -227,4 +225,10 @@ export function validateTokenBudget(
   };
 }
 
-export { DEFAULT_STOP_SEQUENCES, BEAT_TYPE_TOKEN_LIMITS, VOICE_AUDIT_SCHEMA, CONTINUITY_AUDIT_SCHEMA, CHAPTER_END_RESERVE_TOKENS };
+export {
+  DEFAULT_STOP_SEQUENCES,
+  BEAT_TYPE_TOKEN_LIMITS,
+  VOICE_AUDIT_SCHEMA,
+  CONTINUITY_AUDIT_SCHEMA,
+  CHAPTER_END_RESERVE_TOKENS,
+};

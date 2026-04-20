@@ -1010,11 +1010,67 @@ export function extractCapitalizedWords(text: string): string[] {
   return words;
 }
 
-export function detectUnknownProperNouns(entities: EntitiesDb, text: string): string[] {
-  const candidates = extractCapitalizedWords(text);
-  const unknown: string[] = [];
+const COMMON_SENTENCE_INITIAL_WORDS = new Set([
+  "The",
+  "A",
+  "An",
+  "This",
+  "That",
+  "These",
+  "Those",
+  "He",
+  "She",
+  "They",
+  "It",
+  "We",
+  "I",
+  "His",
+  "Her",
+  "Their",
+  "Our",
+  "My",
+  "In",
+  "On",
+  "At",
+  "After",
+  "Before",
+  "When",
+  "Then",
+  "And",
+  "But",
+  "So",
+  "Because",
+  "If",
+  "For",
+  "To",
+]);
 
-  for (const word of candidates) {
+function isSentenceInitialCapitalizedWord(text: string, startIndex: number, word: string): boolean {
+  if (word.includes(" ")) {
+    return false;
+  }
+
+  let cursor = startIndex - 1;
+  while (cursor >= 0 && /[\s"'“”‘’()[\]{}]/.test(text[cursor]!)) {
+    cursor -= 1;
+  }
+
+  return cursor < 0 || /[.!?。！？]/.test(text[cursor]!);
+}
+
+export function detectUnknownProperNouns(entities: EntitiesDb, text: string): string[] {
+  const unknown: string[] = [];
+  const regex = /\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b/g;
+  let match: RegExpExecArray | null;
+
+  while ((match = regex.exec(text)) !== null) {
+    const word = match[0];
+    if (COMMON_SENTENCE_INITIAL_WORDS.has(word)) {
+      continue;
+    }
+    if (isSentenceInitialCapitalizedWord(text, match.index, word)) {
+      continue;
+    }
     if (!validateProperNoun(entities, word)) {
       unknown.push(word);
     }

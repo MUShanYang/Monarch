@@ -3,15 +3,29 @@ import type { Beat, BeatType, NarrativeDNA, BeatCandidate, SpeculativeVariant } 
 import type { AuditResult } from "../audit/cascade-auditor.js";
 import type { ApiConstraints } from "../llm/api-constraints.js";
 import type { PreGenerationHooksResult, PostGenerationHooksResult, AdaptationHooks } from "./hooks.js";
-import { SPECULATIVE_VARIANTS, getDefaultWordTarget } from "../beat/beat-types.js";
+import { SPECULATIVE_VARIANTS, createBeat, getDefaultWordTarget } from "../beat/beat-types.js";
 import { getApiConstraintsForSpeculative } from "../llm/api-constraints.js";
+import {
+  SpeculativeGenerator,
+  type SyntacticVariant,
+  type GenerationBatch,
+} from "../beat/speculative-generator.js";
+import { parallel3 } from "../state/event-sourcer.js";
 
 function stripThinkingTags(text: string): string {
   return text.replace(/<thinking>[\s\S]*?<\/thinking>/gi, "");
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function countVisibleWords(prose: string): number {
   const cleaned = stripThinkingTags(prose);
+  const chineseChars = cleaned.replace(/[^\u4e00-\u9fff]/g, "").length;
+  if (chineseChars > 0) {
+    return chineseChars;
+  }
   return cleaned.split(/\s+/).filter((w) => w.length > 0).length;
 }
 
@@ -28,6 +42,7 @@ export type BeatGenerationRequest = z.infer<typeof BeatGenerationRequestSchema>;
 
 export const SpeculativeCandidateSchema = z.object({
   variantId: z.enum(["A", "B", "C"]),
+  syntacticVariantId: z.enum(["SYN_PARATAXIS", "SYN_HYPOTAXIS", "SYN_NOMINAL"]).optional(),
   prose: z.string(),
   wordCount: z.number().int().min(0),
   auditResult: z.any().optional(),
@@ -49,6 +64,7 @@ export type BeatSelectionResult = z.infer<typeof BeatSelectionResultSchema>;
 
 export const LLMCallConfigSchema = z.object({
   variantId: z.enum(["A", "B", "C"]),
+  syntacticVariantId: z.enum(["SYN_PARATAXIS", "SYN_HYPOTAXIS", "SYN_NOMINAL"]).optional(),
   prompt: z.string(),
   constraints: z.any(),
   dna: z.any(),
@@ -64,6 +80,7 @@ export class BeatOrchestrator {
   private readonly maxRetries: number;
   private readonly selectionStrategy: "best_score" | "first_passing" | "diversity";
   private llmInterface: BeatOrchestratorLLMInterface | null = null;
+  private readonly speculativeGenerator = new SpeculativeGenerator();
 
   constructor(options?: {
     maxRetries?: number;
@@ -100,55 +117,96 @@ export class BeatOrchestrator {
     return configs;
   }
 
+  prepareSpeculativeBatches(request: BeatGenerationRequest): LLMCallConfig[][] {
+    const beat = createBeat({
+      chapterNumber: request.chapterNumber,
+      sequenceInChapter: 0,
+      type: request.beatType as BeatType,
+      tensionLevel: request.tensionLevel as Beat["tensionLevel"],
+      targetWords: getDefaultWordTarget(request.beatType as BeatType),
+      dna: request.dna,
+      kineticScaffold: request.kineticScaffold
+        ? {
+            openingWords: request.kineticScaffold,
+            reason: "speculative batch generation",
+            source: "manual",
+          }
+        : undefined,
+    });
+
+    const batches = this.speculativeGenerator.getGenerationBatches(beat);
+    return batches.map((batch) => this.createBatchConfigs(request, batch));
+  }
+
   async executeSpeculativeCalls(
     request: BeatGenerationRequest,
     hooks: AdaptationHooks
   ): Promise<BeatSelectionResult> {
-    const llmConfigs = this.prepareSpeculativeCalls(request);
-
-    console.log(`[monarch] 并行调用 3 路 LLM 候选（A/B/C）...`);
-    const prosePromises = llmConfigs.map(async (config) => {
-      const prose = await this.callLLMWithConfig(config, request, hooks);
-      return { config, prose };
-    });
-
-    const proseResults = await Promise.all(prosePromises);
-
     const candidates: SpeculativeCandidate[] = [];
+    const batches = this.prepareSpeculativeBatches(request);
 
-    for (const { config, prose } of proseResults) {
-      if (!prose) {
-        console.log(`[monarch] 候选 ${config.variantId}：LLM 返回空内容，跳过`);
-        continue;
+    console.log(`[monarch] 执行 3×3 speculative 生成：按 3 个串行批次，每批 3 路并行`);
+    for (let batchIndex = 0; batchIndex < batches.length; batchIndex += 1) {
+      const batch = batches[batchIndex]!;
+      console.log(`[monarch] speculative 批次 ${batchIndex + 1}/${batches.length} 开始`);
+
+      const proseResults = await parallel3([
+        async () => {
+          const config = batch[0]!;
+          return { config, prose: await this.callLLMWithConfig(config, request, hooks) };
+        },
+        async () => {
+          const config = batch[1]!;
+          return { config, prose: await this.callLLMWithConfig(config, request, hooks) };
+        },
+        async () => {
+          const config = batch[2]!;
+          return { config, prose: await this.callLLMWithConfig(config, request, hooks) };
+        },
+      ]);
+
+      for (const { config, prose } of proseResults) {
+        if (!prose) {
+          console.log(`[monarch] 候选 ${config.variantId}/${config.syntacticVariantId ?? "none"}：LLM 返回空内容，跳过`);
+          continue;
+        }
+
+        const wordCount = countVisibleWords(prose);
+        console.log(
+          `[monarch] 候选 ${config.variantId}/${config.syntacticVariantId ?? "none"}：生成 ${wordCount} 字，正在审计...`
+        );
+
+        const postResult = await hooks.postGenerationBeat({
+          prose,
+          dna: request.dna,
+          beatType: request.beatType as BeatType,
+          chapterNumber: request.chapterNumber,
+        });
+
+        const passed = postResult.auditResult?.passed ? "通过" : "未通过";
+        const issues = postResult.auditResult?.issues ?? [];
+        const errorIssues = issues.filter((i: any) => i.severity === "error");
+        const warnIssues = issues.filter((i: any) => i.severity === "warning");
+        if (!passed && errorIssues.length > 0) {
+          const first3 = errorIssues.slice(0, 3).map((i: any) => `[${i.code}] ${i.message}`).join("；");
+          console.log(
+            `[monarch] 候选 ${config.variantId}/${config.syntacticVariantId ?? "none"}：审计${passed}，${errorIssues.length} 个错误，${warnIssues.length} 个警告。前 3 个错误：${first3}`
+          );
+        } else {
+          console.log(
+            `[monarch] 候选 ${config.variantId}/${config.syntacticVariantId ?? "none"}：审计${passed}，${errorIssues.length} 个错误，${warnIssues.length} 个警告`
+          );
+        }
+
+        const candidate = this.createCandidateFromProse(
+          config.variantId,
+          prose,
+          postResult.auditResult,
+          request.dna,
+          config.syntacticVariantId,
+        );
+        candidates.push(candidate);
       }
-
-      const wordCount = countVisibleWords(prose);
-      console.log(`[monarch] 候选 ${config.variantId}：生成 ${wordCount} 字，正在审计...`);
-
-      const postResult = await hooks.postGenerationBeat({
-        prose,
-        dna: request.dna,
-        beatType: request.beatType as BeatType,
-      });
-
-      const passed = postResult.auditResult?.passed ? "通过" : "未通过";
-      const issues = postResult.auditResult?.issues ?? [];
-      const errorIssues = issues.filter((i: any) => i.severity === "error");
-      const warnIssues = issues.filter((i: any) => i.severity === "warning");
-      if (!passed && errorIssues.length > 0) {
-        const first3 = errorIssues.slice(0, 3).map((i: any) => `[${i.code}] ${i.message}`).join("；");
-        console.log(`[monarch] 候选 ${config.variantId}：审计${passed}，${errorIssues.length} 个错误，${warnIssues.length} 个警告。前 3 个错误：${first3}`);
-      } else {
-        console.log(`[monarch] 候选 ${config.variantId}：审计${passed}，${errorIssues.length} 个错误，${warnIssues.length} 个警告`);
-      }
-
-      const candidate = this.createCandidateFromProse(
-        config.variantId,
-        prose,
-        postResult.auditResult,
-        request.dna
-      );
-      candidates.push(candidate);
     }
 
     if (candidates.length === 0) {
@@ -161,7 +219,21 @@ export class BeatOrchestrator {
       });
     }
 
-    return this.selectBestCandidate(candidates, request.dna);
+    const selection = this.selectBestCandidate(candidates, request.dna);
+    const selectedCandidate = candidates.find(
+      (candidate) =>
+        candidate.variantId === selection.selectedVariant &&
+        candidate.prose === selection.selectedProse
+    );
+    if (selectedCandidate) {
+      this.speculativeGenerator.updateStateAfterSelection(
+        selectedCandidate.variantId,
+        selectedCandidate.syntacticVariantId,
+        true,
+      );
+    }
+
+    return selection;
   }
 
   private async callLLMWithConfig(
@@ -176,14 +248,17 @@ export class BeatOrchestrator {
     const systemPrompt = this.buildSystemPrompt(request);
     const prose = await this.llmInterface.callLLM(config.prompt, systemPrompt, config.constraints);
 
-    const cleaned = stripThinkingTags(prose);
+    let cleaned = stripThinkingTags(prose);
+
+    // Remove English content - keep only Chinese characters and basic punctuation
+    cleaned = this.removeEnglishContent(cleaned);
 
     if (request.bannedWords.length > 0) {
       const { exciseExplicitMotivation } = await import("../beat/show-dont-tell-scalpel.js");
       let cleaned2 = exciseExplicitMotivation(cleaned);
 
       for (const banned of request.bannedWords) {
-        const regex = new RegExp(banned, "gi");
+        const regex = new RegExp(escapeRegExp(banned), "gi");
         cleaned2 = cleaned2.replace(regex, "");
       }
       return cleaned2;
@@ -192,15 +267,57 @@ export class BeatOrchestrator {
     return cleaned;
   }
 
+  private removeEnglishContent(text: string): string {
+    // Split by paragraphs
+    const paragraphs = text.split(/\n+/);
+    const cleanedParagraphs: string[] = [];
+
+    for (const para of paragraphs) {
+      // Count Chinese characters vs English letters
+      const chineseChars = (para.match(/[\u4e00-\u9fff]/g) || []).length;
+      const englishLetters = (para.match(/[a-zA-Z]/g) || []).length;
+
+      // If paragraph is mostly English (>30% English letters), skip it
+      if (englishLetters > 0 && englishLetters > chineseChars * 0.3) {
+        continue;
+      }
+
+      // Remove English words from mixed paragraphs
+      let cleaned = para.replace(/\b[a-zA-Z]+\b/g, '');
+      // Clean up extra spaces
+      cleaned = cleaned.replace(/\s{2,}/g, ' ').trim();
+
+      if (cleaned.length > 0) {
+        cleanedParagraphs.push(cleaned);
+      }
+    }
+
+    return cleanedParagraphs.join('\n\n');
+  }
+
   private buildSystemPrompt(request: BeatGenerationRequest): string {
     const parts: string[] = [];
 
-    parts.push(`你是专业小说作家。你必须用中文写作。`);
+    parts.push(`你是专业小说作家。`);
+    parts.push(`CRITICAL: 你必须只用中文写作。绝对禁止使用英文、日文或其他任何语言。每一个字、每一个词、每一句话都必须是中文。`);
+    parts.push(`当前章节：第${request.chapterNumber}章。`);
     parts.push(`节拍类型：${request.beatType}`);
     parts.push(`张力等级：${request.tensionLevel}/10`);
 
+    if (request.chapterNumber > 1) {
+      parts.push("这是续写章节，不是开篇。禁止把剧情重置成主角初醒、失忆、重新进入遗迹或重新自我介绍，除非明确写成回忆、梦境或幻觉。");
+    }
+
     if (request.kineticScaffold) {
       parts.push(`你必须以以下开头开始写作："${request.kineticScaffold}"`);
+    }
+
+    if (request.dna?.lastBeatSummary) {
+      parts.push(`上一节拍摘要：${request.dna.lastBeatSummary}`);
+    }
+
+    if (request.dna?.where) {
+      parts.push(`当前场景锚点：${request.dna.where}`);
     }
 
     // 角色名字要求
@@ -323,7 +440,8 @@ export class BeatOrchestrator {
     variantId: "A" | "B" | "C",
     prose: string,
     auditResult?: AuditResult,
-    dna?: NarrativeDNA
+    dna?: NarrativeDNA,
+    syntacticVariantId?: SpeculativeCandidate["syntacticVariantId"],
   ): SpeculativeCandidate {
     const wordCount = countVisibleWords(prose);
 
@@ -347,6 +465,7 @@ export class BeatOrchestrator {
 
     return SpeculativeCandidateSchema.parse({
       variantId,
+      syntacticVariantId,
       prose,
       wordCount,
       auditResult,
@@ -356,11 +475,21 @@ export class BeatOrchestrator {
     });
   }
 
-  private buildPrompt(request: BeatGenerationRequest, variant: SpeculativeVariant): string {
+  private buildPrompt(
+    request: BeatGenerationRequest,
+    variant: SpeculativeVariant,
+    syntacticVariant?: SyntacticVariant,
+  ): string {
     const parts: string[] = [];
+
+    parts.push(`【语言要求】只能使用中文写作，禁止使用任何英文单词、短语或句子。`);
 
     if (request.kineticScaffold) {
       parts.push(`开头：${request.kineticScaffold}`);
+    }
+
+    if (request.chapterNumber > 1) {
+      parts.push("续写约束：不要回到第一章开场，不要再写主角初醒失忆或重新进入遗迹，除非明确写成回忆、梦境或幻觉。");
     }
 
     if (request.dna.who.length > 0) {
@@ -370,6 +499,10 @@ export class BeatOrchestrator {
 
     if (request.dna.where) {
       parts.push(`地点：${request.dna.where}`);
+    }
+
+    if (request.dna.lastBeatSummary) {
+      parts.push(`承接上一节拍：${request.dna.lastBeatSummary}`);
     }
 
     if (request.dna.mustInclude.length > 0) {
@@ -402,9 +535,21 @@ export class BeatOrchestrator {
       parts.push(`不要解释原因，让它在身体里自然发生，然后继续。`);
     }
 
-    parts.push(`风格：${variant.suffix}`);
+    parts.push(`风格：${variant.suffix}${syntacticVariant ? ` ${syntacticVariant.suffix}` : ""}`);
 
     return parts.join("\n");
+  }
+
+  private createBatchConfigs(request: BeatGenerationRequest, batch: GenerationBatch): LLMCallConfig[] {
+    const wordTarget = getDefaultWordTarget(request.beatType as BeatType);
+    return batch.requests.map((generationRequest) => ({
+      variantId: generationRequest.semanticVariant.id,
+      syntacticVariantId: generationRequest.syntacticVariant?.id,
+      prompt: this.buildPrompt(request, generationRequest.semanticVariant, generationRequest.syntacticVariant),
+      constraints: getApiConstraintsForSpeculative(generationRequest.semanticVariant.id, wordTarget),
+      dna: request.dna,
+      kineticScaffold: request.kineticScaffold,
+    }));
   }
 
   private selectForDiversity(

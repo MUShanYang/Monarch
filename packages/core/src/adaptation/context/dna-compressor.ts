@@ -41,6 +41,9 @@ export const DnaCompressorInputSchema = z.object({
   hooksToAdvance: z.array(z.string()).default([]),
   lastBeatSummary: z.string().max(150).default(""),
   maxTokens: z.number().int().min(50).max(500).default(250),
+  additionalMustInclude: z.array(z.string()).default([]),
+  additionalMustNotInclude: z.array(z.string()).default([]),
+  styleGuideOverride: z.string().optional(),
   motifIndexer: z.any().optional(),
   plannedMotif: z.string().optional(),
 });
@@ -53,6 +56,9 @@ export const DnaCompressorOutputSchema = z.object({
   warnings: z.array(z.string()).default([]),
 });
 export type DnaCompressorOutput = z.infer<typeof DnaCompressorOutputSchema>;
+
+export const DegradationLevelSchema = z.enum(["full", "reduced", "minimal", "scaffold", "human_gate"]);
+export type DegradationLevel = z.infer<typeof DegradationLevelSchema>;
 
 const TOKENS_PER_WORD = 1.3;
 const MAX_WHO_CHARACTERS = 3;
@@ -68,10 +74,18 @@ export class DnaCompressor {
     const droppedFields: string[] = [];
     const warnings: string[] = [];
 
-    const mustNotInclude = this.buildMustNotInclude(input.lexicalState, input.intentOutput);
+    const mustNotInclude = this.buildMustNotInclude(
+      input.lexicalState,
+      input.intentOutput,
+      input.additionalMustNotInclude,
+    );
     const who = this.selectCharacters(input.snapshot, input.intentOutput, input.focusCharacterIds);
     const where = this.buildLocation(input.snapshot, input.primaryLocationId, input.intentOutput);
-    const mustInclude = this.buildMustInclude(input.intentOutput, input.hooksToAdvance);
+    const mustInclude = this.buildMustInclude(
+      input.intentOutput,
+      input.hooksToAdvance,
+      input.additionalMustInclude,
+    );
     const hookContext = this.selectHooks(input.snapshot.ledger, input.hooksToAdvance);
     const emotionalContext = this.buildEmotionalContext(who);
     const spatialConstraints = this.extractSpatialConstraints(who);
@@ -90,7 +104,7 @@ export class DnaCompressor {
       spatialConstraints,
       motifEcho,
       sensoryEcho,
-      styleGuide: input.intentOutput.styleGuide,
+      styleGuide: this.mergeStyleGuides(input.intentOutput.styleGuide, input.styleGuideOverride),
     };
 
     let tokenCount = this.calculateTokenCount(dna);
@@ -111,8 +125,16 @@ export class DnaCompressor {
     });
   }
 
-  private buildMustNotInclude(lexical: LexicalState, intentOutput: IntentCompilerOutput): string[] {
+  private buildMustNotInclude(
+    lexical: LexicalState,
+    intentOutput: IntentCompilerOutput,
+    additionalMustNotInclude: string[],
+  ): string[] {
     const items: string[] = [];
+
+    for (const item of additionalMustNotInclude) {
+      items.push(item);
+    }
 
     for (const word of lexical.bannedWords) {
       items.push(word);
@@ -226,8 +248,16 @@ export class DnaCompressor {
     return name;
   }
 
-  private buildMustInclude(intentOutput: IntentCompilerOutput, hooksToAdvance: string[]): string[] {
+  private buildMustInclude(
+    intentOutput: IntentCompilerOutput,
+    hooksToAdvance: string[],
+    additionalMustInclude: string[],
+  ): string[] {
     const items: string[] = [];
+
+    for (const item of additionalMustInclude) {
+      items.push(item);
+    }
 
     for (const hookId of hooksToAdvance.slice(0, 2)) {
       items.push(`Advance hook: ${hookId}`);
@@ -243,7 +273,19 @@ export class DnaCompressor {
       items.push(elem);
     }
 
-    return items.slice(0, MAX_MUST_INCLUDE);
+    return [...new Set(items)].slice(0, MAX_MUST_INCLUDE);
+  }
+
+  private mergeStyleGuides(baseStyleGuide: string | undefined, styleGuideOverride: string | undefined): string | undefined {
+    const parts = [baseStyleGuide, styleGuideOverride]
+      .map((value) => value?.trim())
+      .filter((value): value is string => Boolean(value));
+
+    if (parts.length === 0) {
+      return undefined;
+    }
+
+    return [...new Set(parts)].join("\n");
   }
 
   private selectHooks(ledger: NarrativeLedger, hooksToAdvance: string[]): string[] {
@@ -551,6 +593,47 @@ export class DnaCompressor {
 export function compressDna(input: DnaCompressorInput): DnaCompressorOutput {
   const compressor = new DnaCompressor();
   return compressor.compress(input);
+}
+
+export function degradeDNA(dna: NarrativeDNA, level: DegradationLevel): NarrativeDNA {
+  switch (level) {
+    case "reduced":
+      return {
+        ...dna,
+        hookContext: [],
+        mustInclude: dna.mustInclude.slice(0, 1),
+      };
+    case "minimal":
+      return {
+        who: dna.who,
+        where: dna.where,
+        mustInclude: [],
+        mustNotInclude: dna.mustNotInclude,
+        lastBeatSummary: dna.lastBeatSummary,
+        tensionContext: dna.tensionContext,
+        hookContext: [],
+        spatialConstraints: [],
+      };
+    case "scaffold":
+      return {
+        who: dna.who.map((character) => ({
+          ...character,
+          activeDebts: [],
+        })),
+        where: dna.where,
+        mustInclude: [],
+        mustNotInclude: dna.mustNotInclude,
+        lastBeatSummary: "",
+        tensionContext: dna.tensionContext,
+        hookContext: [],
+        spatialConstraints: dna.spatialConstraints.slice(0, 1),
+      };
+    case "human_gate":
+      return degradeDNA(dna, "scaffold");
+    case "full":
+    default:
+      return dna;
+  }
 }
 
 export function createLexicalState(params: {

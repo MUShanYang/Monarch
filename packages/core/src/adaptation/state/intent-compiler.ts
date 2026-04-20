@@ -2,7 +2,7 @@ import { z } from "zod";
 import yaml from "js-yaml";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { RuleStack, RuleStackSections } from "../../models/input-governance.js";
+import { RuleStackSchema, type RuleStack } from "../../models/input-governance.js";
 
 export const HardBanSchema = z.object({
   pattern: z.string().min(1),
@@ -66,7 +66,7 @@ export const CompiledRulesSchema = z.object({
 export type CompiledRules = z.infer<typeof CompiledRulesSchema>;
 
 export const IntentCompilerOutputSchema = z.object({
-  ruleStack: z.array(z.string()).default([]),
+  ruleStack: RuleStackSchema,
   systemWeights: SystemWeightsSchema,
   compiledRules: CompiledRulesSchema,
   sourceHash: z.string(),

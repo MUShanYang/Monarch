@@ -11,6 +11,7 @@ import {
   LLMConfigSchema,
   NotifyChannelSchema,
   InputGovernanceModeSchema,
+  WriteModeSchema,
 } from "../models/project.js";
 import {
   ChapterIntentSchema,
@@ -350,6 +351,11 @@ describe("ProjectConfigSchema", () => {
     expect(result.inputGovernanceMode).toBe("v2");
   });
 
+  it("defaults write mode to adaptation", () => {
+    const result = ProjectConfigSchema.parse(validProject);
+    expect(result.writeMode).toBe("adaptation");
+  });
+
   it("rejects wrong version", () => {
     expect(() =>
       ProjectConfigSchema.parse({ ...validProject, version: "1.0.0" }),
@@ -376,6 +382,16 @@ describe("InputGovernanceModeSchema", () => {
 
   it("rejects unknown input governance modes", () => {
     expect(() => InputGovernanceModeSchema.parse("planner")).toThrow();
+  });
+});
+
+describe("WriteModeSchema", () => {
+  it.each(["standard", "adaptation"] as const)("accepts '%s'", (value) => {
+    expect(WriteModeSchema.parse(value)).toBe(value);
+  });
+
+  it("rejects unknown write modes", () => {
+    expect(() => WriteModeSchema.parse("hybrid")).toThrow();
   });
 });
 

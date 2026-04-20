@@ -9,6 +9,7 @@ import type { ExitEvaluationResult } from "../scene/exit-conditions.js";
 import type { CuriosityCheckResult } from "../narrative/curiosity-ledger.js";
 import type { MetabolismReport } from "../narrative/metabolism.js";
 import type { DriftReport } from "../narrative/drift-detector.js";
+import { degradeDNA, type DegradationLevel } from "../context/dna-compressor.js";
 
 export const PipelineStageSchema = z.enum([
   "planning",
@@ -90,7 +91,7 @@ export interface AdaptationPipelineDeps {
     checkBoundary(dialogue: string, boundary: KnowledgeBoundary, others: KnowledgeBoundary[]): KnowledgeCheckResult;
   };
   auditor: {
-    audit(prose: string, dna: NarrativeDNA): Promise<AuditResult>;
+    audit(prose: string, dna: NarrativeDNA, options?: { chapterNumber?: number }): Promise<AuditResult>;
   };
   stateManager: {
     applyEvents(snapshot: EntityStateSnapshot, events: StateEvent[], chapter: number): EntityStateSnapshot;
@@ -130,8 +131,15 @@ const DEFAULT_PIPELINE_CONFIG: AdaptationPipelineConfig = {
   requireAllReadersYes: false,
   discardOnAllReadersNo: true,
   strictKnowledgeBoundary: true,
-  maxRetriesPerBeat: 3,
+  maxRetriesPerBeat: 2,
 };
+
+const DEGRADATION_LADDER: ReadonlyArray<{ level: DegradationLevel; retries: number }> = [
+  { level: "full", retries: 2 },
+  { level: "reduced", retries: 2 },
+  { level: "minimal", retries: 2 },
+  { level: "scaffold", retries: 1 },
+] as const;
 
 export class AdaptationPipelineOrchestrator {
   private deps: AdaptationPipelineDeps;
@@ -240,60 +248,83 @@ export class AdaptationPipelineOrchestrator {
   }
 
   async processBeat(beat: Beat, context: PipelineContext): Promise<BeatProcessingResult | null> {
-    let prose = await this.deps.generator.generateBeat(beat, beat.dna);
-    let events: StateEvent[] = [];
+    let totalRetries = 0;
 
-    let adversarialResult: AdversarialRefinementResult | undefined;
-    if (this.config.enableAdversarialRefinement) {
-      adversarialResult = await this.deps.adversarialRefiner.refine(prose, beat.dna, beat);
-      prose = adversarialResult.finalProse;
-    }
+    for (const step of DEGRADATION_LADDER) {
+      const retriesForLevel = step.level === "scaffold"
+        ? 1
+        : Math.max(1, Math.min(this.config.maxRetriesPerBeat, step.retries));
 
-    let readerResult: ReaderSimulationResult | undefined;
-    if (this.config.enableReaderSimulation) {
-      readerResult = await this.deps.readerSimulator.simulate(prose, beat.dna, beat);
+      for (let attempt = 0; attempt < retriesForLevel; attempt += 1) {
+        const activeDna = degradeDNA(beat.dna, step.level);
+        const activeBeat: Beat = {
+          ...beat,
+          dna: activeDna,
+          retryCount: totalRetries,
+        };
 
-      if (readerResult.shouldDiscard && this.config.discardOnAllReadersNo) {
-        return null;
+        let prose = await this.deps.generator.generateBeat(activeBeat, activeDna);
+        let events: StateEvent[] = [];
+
+        let adversarialResult: AdversarialRefinementResult | undefined;
+        if (this.config.enableAdversarialRefinement) {
+          adversarialResult = await this.deps.adversarialRefiner.refine(prose, activeDna, activeBeat);
+          prose = adversarialResult.finalProse;
+        }
+
+        let readerResult: ReaderSimulationResult | undefined;
+        if (this.config.enableReaderSimulation) {
+          readerResult = await this.deps.readerSimulator.simulate(prose, activeDna, activeBeat);
+
+          if (readerResult.shouldDiscard && this.config.discardOnAllReadersNo) {
+            totalRetries += 1;
+            continue;
+          }
+        }
+
+        let knowledgeResult: KnowledgeCheckResult | undefined;
+        if (this.config.enableKnowledgeBoundary && context.characterBoundaries.length > 0) {
+          const speakerBoundary = context.characterBoundaries[0]!;
+          const otherBoundaries = context.characterBoundaries.slice(1);
+          knowledgeResult = this.deps.knowledgeChecker.checkBoundary(prose, speakerBoundary, otherBoundaries);
+
+          if (knowledgeResult.hasBreach && this.config.strictKnowledgeBoundary) {
+            prose = await this.fixKnowledgeBreach(prose, knowledgeResult, activeBeat);
+          }
+        }
+
+        const auditResult = await this.deps.auditor.audit(prose, activeDna, {
+          chapterNumber: activeBeat.chapterNumber,
+        });
+        if (!auditResult.passed && auditResult.disqualified) {
+          totalRetries += 1;
+          continue;
+        }
+
+        events = this.deps.stateManager.extractEvents(prose, activeBeat);
+
+        const finalBeat: Beat = {
+          ...activeBeat,
+          chosen: prose,
+          status: "approved",
+          wordCount: prose.replace(/[^\u4e00-\u9fff]/g, "").length || prose.split(/\s+/).filter((word) => word.length > 0).length,
+        };
+
+        return BeatProcessingResultSchema.parse({
+          beat: finalBeat,
+          stage: "complete",
+          adversarialResult,
+          readerResult,
+          knowledgeResult,
+          auditResult,
+          prose,
+          final: true,
+          events,
+        });
       }
     }
 
-    let knowledgeResult: KnowledgeCheckResult | undefined;
-    if (this.config.enableKnowledgeBoundary && context.characterBoundaries.length > 0) {
-      const speakerBoundary = context.characterBoundaries[0]!;
-      const otherBoundaries = context.characterBoundaries.slice(1);
-      knowledgeResult = this.deps.knowledgeChecker.checkBoundary(prose, speakerBoundary, otherBoundaries);
-
-      if (knowledgeResult.hasBreach && this.config.strictKnowledgeBoundary) {
-        prose = await this.fixKnowledgeBreach(prose, knowledgeResult, beat);
-      }
-    }
-
-    const auditResult = await this.deps.auditor.audit(prose, beat.dna);
-    if (!auditResult.passed && auditResult.disqualified) {
-      return null;
-    }
-
-    events = this.deps.stateManager.extractEvents(prose, beat);
-
-    const finalBeat: Beat = {
-      ...beat,
-      chosen: prose,
-      status: "approved",
-      wordCount: prose.split(/\s+/).length,
-    };
-
-    return BeatProcessingResultSchema.parse({
-      beat: finalBeat,
-      stage: "complete",
-      adversarialResult,
-      readerResult,
-      knowledgeResult,
-      auditResult,
-      prose,
-      final: true,
-      events,
-    });
+    return null;
   }
 
   private checkExitConditions(

@@ -46,6 +46,12 @@ export const CascadeAuditorConfigSchema = z.object({
 });
 export type CascadeAuditorConfig = z.infer<typeof CascadeAuditorConfigSchema>;
 
+interface CascadeAuditOptions {
+  readonly skipVoice?: boolean;
+  readonly skipContinuity?: boolean;
+  readonly chapterNumber?: number;
+}
+
 const POV_PATTERNS = {
   first: /\b(I|me|my|mine|we|us|our|ours)\b/gi,
   third: /\b(he|him|his|she|her|hers|they|them|their|theirs|it|its)\b/gi,
@@ -74,10 +80,7 @@ export class CascadeAuditor {
   audit(
     prose: string,
     dna: NarrativeDNA,
-    options?: {
-      skipVoice?: boolean;
-      skipContinuity?: boolean;
-    }
+    options?: CascadeAuditOptions
   ): AuditResult {
     const issues: AuditIssue[] = [];
     const layerResults: Record<string, boolean> = {};
@@ -105,7 +108,10 @@ export class CascadeAuditor {
 
     const skipContinuity = options?.skipContinuity ?? !this.config.enableContinuityLayer;
     if (!skipContinuity) {
-      layerResults.continuity = true;
+      const continuityResult = this.auditContinuityLayer(prose, dna, options?.chapterNumber);
+      issues.push(...continuityResult.issues);
+      layerResults.continuity = continuityResult.passed;
+      if (continuityResult.disqualified) disqualified = true;
     }
 
     const errorCount = issues.filter((i) => i.severity === "error").length;
@@ -291,6 +297,56 @@ export class CascadeAuditor {
     if (!properNounResult.passed && this.config.strictProperNoun) return false;
 
     return true;
+  }
+
+  private auditContinuityLayer(
+    prose: string,
+    _dna: NarrativeDNA,
+    chapterNumber?: number,
+  ): { passed: boolean; disqualified: boolean; issues: AuditIssue[] } {
+    const issues: AuditIssue[] = [];
+    if (!chapterNumber || chapterNumber <= 1) {
+      return { passed: true, disqualified: false, issues };
+    }
+
+    const resetPatterns = [
+      /不知道自己是谁/,
+      /我是谁/,
+      /这里是(?:哪里|何处)/,
+      /这是(?:哪里|何处)/,
+      /无名遗迹/,
+      /猛地睁开眼/,
+      /缓缓睁开眼/,
+      /骤然睁开眼/,
+      /失忆/,
+      /初醒/,
+    ];
+    const flashbackPatterns = [
+      /回忆/,
+      /记忆/,
+      /梦里/,
+      /梦中/,
+      /梦境/,
+      /幻觉/,
+      /想起/,
+      /忆起/,
+      /旧梦/,
+    ];
+
+    const resetHits = resetPatterns.filter((pattern) => pattern.test(prose));
+    const flashbackLike = flashbackPatterns.some((pattern) => pattern.test(prose));
+
+    if (resetHits.length >= 2 && !flashbackLike) {
+      issues.push({
+        layer: "continuity",
+        severity: "error",
+        code: "CHAPTER_RESET",
+        message: `Detected chapter-reset prose in later chapter: ${resetHits.slice(0, 3).map((pattern) => pattern.source).join(", ")}`,
+      });
+      return { passed: false, disqualified: true, issues };
+    }
+
+    return { passed: true, disqualified: false, issues };
   }
 
   private countWords(text: string): number {

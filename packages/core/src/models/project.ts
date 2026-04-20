@@ -86,6 +86,8 @@ export type AgentLLMOverride = z.infer<typeof AgentLLMOverrideSchema>;
 
 export const InputGovernanceModeSchema = z.enum(["legacy", "v2"]);
 export type InputGovernanceMode = z.infer<typeof InputGovernanceModeSchema>;
+export const WriteModeSchema = z.enum(["standard", "adaptation"]);
+export type WriteMode = z.infer<typeof WriteModeSchema>;
 
 const ModelOverrideValueSchema = z.union([z.string(), AgentLLMOverrideSchema]);
 
@@ -98,6 +100,7 @@ export const ProjectConfigSchema = z.object({
   detection: DetectionConfigSchema.optional(),
   modelOverrides: z.record(z.string(), ModelOverrideValueSchema).optional(),
   inputGovernanceMode: InputGovernanceModeSchema.default("v2"),
+  writeMode: WriteModeSchema.default("adaptation"),
   daemon: z.object({
     schedule: z.object({
       radarCron: z.string().default("0 */6 * * *"),

@@ -48,6 +48,7 @@ function buildProjectConfig(projectDir: string, language: "zh" | "en") {
     },
     notify: [],
     inputGovernanceMode: "v2" as const,
+    writeMode: "adaptation" as const,
     daemon: {
       schedule: {
         radarCron: "0 */6 * * *",

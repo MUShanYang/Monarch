@@ -34,13 +34,17 @@ writeCommand
         log(`[migration] ${migrationHint}`);
       }
       const config = await loadConfig();
-
-      const pipeline = new PipelineRunner(buildPipelineConfig(config, root, { externalContext: context, quiet: opts.quiet }));
-
       const count = parseInt(opts.count, 10);
       const wordCount = opts.words ? parseInt(opts.words, 10) : undefined;
       const maxRetries = parseInt(opts.maxRetries, 10);
       const useAdaptation = opts.adaptation ?? true;
+      const writeMode = useAdaptation ? "adaptation" : "standard";
+      const pipeline = new PipelineRunner(buildPipelineConfig(config, root, {
+        externalContext: context,
+        quiet: opts.quiet,
+        writeMode,
+        adaptationMaxRetries: maxRetries,
+      }));
 
       const results = [];
       for (let i = 0; i < count; i++) {
@@ -51,9 +55,7 @@ writeCommand
           log(formatWriteNextProgress(language, i + 1, count, bookId) + modeText);
         }
 
-        const result = useAdaptation
-          ? await pipeline.writeNextChapterWithAdaptation(bookId, { wordCount, maxRetries })
-          : await pipeline.writeNextChapter(bookId, wordCount);
+        const result = await pipeline.writeNextChapter(bookId, wordCount);
         results.push(result);
 
         if (!opts.json) {

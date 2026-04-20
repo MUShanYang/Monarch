@@ -220,6 +220,17 @@ export function createKineticScaffold(openingWords: string, reason?: string): Ki
 }
 
 export function characterToDnaSnapshot(char: CharacterSnapshot): CharacterSnapshotForDna {
+  const constraints: string[] = [];
+  if (char.handState !== "empty") {
+    constraints.push(`${char.name} cannot pick up or manipulate new items.`);
+  }
+  if (char.spatialPosture === "lying") {
+    constraints.push(`${char.name} is prone and cannot run until posture changes.`);
+  }
+  if (char.spatialPosture === "unconscious") {
+    constraints.push(`${char.name} is unconscious and cannot act or speak.`);
+  }
+
   return {
     id: char.id,
     name: char.name,
@@ -229,13 +240,19 @@ export function characterToDnaSnapshot(char: CharacterSnapshot): CharacterSnapsh
     currentLocation: char.currentLocation,
     emotionalState: char.emotionalDebts.length > 0 ? char.emotionalDebts[0]?.emotion : undefined,
     activeDebts: char.emotionalDebts.map((d) => d.emotion),
-    constraint: char.handState !== "empty" ? `${char.name} cannot pick up or manipulate new items.` : undefined,
+    constraint: constraints.join(" ").trim() || undefined,
   };
 }
 
 function extractSpatialConstraints(characters: CharacterSnapshotForDna[]): string[] {
   const constraints: string[] = [];
   for (const char of characters) {
+    if (char.spatialPosture === "lying") {
+      constraints.push(`${char.name} is lying down and cannot run naturally in this beat.`);
+    }
+    if (char.spatialPosture === "unconscious") {
+      constraints.push(`${char.name} is unconscious and cannot initiate movement or dialogue.`);
+    }
     if (char.handState !== "empty" && char.handState !== "injured") {
       constraints.push(`${char.name}'s hands are ${char.handState === "full" ? "full" : `occupied (${char.handState})`}.`);
     }

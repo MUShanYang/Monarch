@@ -310,8 +310,7 @@ function wrapLLMError(error: unknown, context?: { readonly baseUrl?: string; rea
 }
 
 function shouldUseNativeCustomTransport(client: LLMClient): boolean {
-  return client.configSource === "studio"
-    && client.service === "custom"
+  return Boolean(client.service === "custom" || client.service?.startsWith("custom:"))
     && (client.provider === "openai" || client.provider === "anthropic");
 }
 
@@ -372,6 +371,24 @@ async function readErrorResponse(res: Response): Promise<string> {
   return `${res.status} ${text || res.statusText}`.trim();
 }
 
+function logCustomTransportHttpError(
+  status: number,
+  detail: string,
+  request: {
+    readonly baseUrl: string;
+    readonly model: string;
+    readonly stream: boolean;
+    readonly maxTokens: number;
+    readonly extraKeys: string[];
+  },
+): void {
+  console.warn(
+    `[inkos] Custom transport HTTP ${status} ` +
+    `(baseUrl=${request.baseUrl}, model=${request.model}, stream=${request.stream}, maxTokens=${request.maxTokens}, extraKeys=${request.extraKeys.join(",") || "none"}) ` +
+    `detail=${detail}`,
+  );
+}
+
 type ParsedSseEvent = {
   readonly event?: string;
   readonly data?: string;
@@ -413,6 +430,27 @@ function extractChatContent(json: any): string {
       .join("");
   }
   return "";
+}
+
+function describeEmptyChatResponse(json: any): string {
+  const finishReason = json?.choices?.[0]?.finish_reason;
+  const reasoningContent = json?.choices?.[0]?.message?.reasoning_content;
+  const reasoningPreview = typeof reasoningContent === "string"
+    ? reasoningContent.replace(/\s+/g, " ").trim().slice(0, 120)
+    : "";
+  const toolCalls = Array.isArray(json?.choices?.[0]?.message?.tool_calls)
+    ? json.choices[0].message.tool_calls.length
+    : 0;
+  const usage = json?.usage
+    ? `${json.usage.prompt_tokens ?? 0}+${json.usage.completion_tokens ?? 0}`
+    : "unknown";
+  return [
+    `usage=${usage}`,
+    `finish_reason=${finishReason ?? "unknown"}`,
+    `reasoning_chars=${typeof reasoningContent === "string" ? reasoningContent.length : 0}`,
+    ...(reasoningPreview ? [`reasoning_preview=${JSON.stringify(reasoningPreview)}`] : []),
+    `tool_calls=${toolCalls}`,
+  ].join(", ");
 }
 
 function extractResponsesContent(json: any): string {
@@ -572,7 +610,15 @@ async function chatCompletionViaCustomOpenAICompatible(
       body: JSON.stringify(payload),
     });
     if (!response.ok) {
-      throw wrapLLMError(new Error(await readErrorResponse(response)), errorCtx);
+      const detail = await readErrorResponse(response);
+      logCustomTransportHttpError(response.status, detail, {
+        baseUrl,
+        model,
+        stream: client.stream,
+        maxTokens: resolved.maxTokens,
+        extraKeys: Object.keys(extra),
+      });
+      throw wrapLLMError(new Error(detail), errorCtx);
     }
 
     if (!client.stream) {
@@ -658,14 +704,24 @@ async function chatCompletionViaCustomOpenAICompatible(
     body: JSON.stringify(payload),
   });
   if (!response.ok) {
-    throw wrapLLMError(new Error(await readErrorResponse(response)), errorCtx);
+    const detail = await readErrorResponse(response);
+    logCustomTransportHttpError(response.status, detail, {
+      baseUrl,
+      model,
+      stream: client.stream,
+      maxTokens: resolved.maxTokens,
+      extraKeys: Object.keys(extra),
+    });
+    throw wrapLLMError(new Error(detail), errorCtx);
   }
 
   if (!client.stream) {
     const json = await response.json() as any;
     const content = extractChatContent(json);
     if (!content) {
-      throw wrapLLMError(new Error("LLM returned empty response"), errorCtx);
+      const diag = describeEmptyChatResponse(json);
+      console.warn(`[inkos] LLM 非流式响应无文本内容 (${diag})`);
+      throw wrapLLMError(new Error(`LLM returned empty response (${diag})`), errorCtx);
     }
     return {
       content,
@@ -714,7 +770,9 @@ async function chatCompletionViaCustomOpenAICompatible(
   }
 
   if (!content) {
-    throw wrapLLMError(new Error("LLM returned empty response from stream"), errorCtx);
+    const diag = `usage=${usage.promptTokens}+${usage.completionTokens}`;
+    console.warn(`[inkos] LLM 流式响应无文本内容 (${diag})`);
+    throw wrapLLMError(new Error(`LLM returned empty response from stream (${diag})`), errorCtx);
   }
   return { content, usage };
 }

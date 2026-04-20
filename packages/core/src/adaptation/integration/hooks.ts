@@ -25,6 +25,7 @@ import {
   type ApiConstraints,
 } from "../llm/api-constraints.js";
 import { join } from "node:path";
+import type { MotifIndexer } from "../state/motif-indexer.js";
 
 export const AdaptationContextSchema = z.object({
   bookDir: z.string().min(1),
@@ -95,6 +96,12 @@ export class AdaptationHooks {
     hooksToAdvance: string[];
     lastBeatSummary: string;
     chapterNumber?: number;
+    motifIndexer?: MotifIndexer;
+    plannedMotif?: string;
+    maxTokens?: number;
+    additionalMustInclude?: string[];
+    additionalMustNotInclude?: string[];
+    styleGuideOverride?: string;
   }): Promise<PreGenerationHooksResult> {
     if (!this.currentSnapshot || !this.currentIntent) {
       await this.initialize();
@@ -124,7 +131,12 @@ export class AdaptationHooks {
       primaryLocationId: params.primaryLocationId,
       hooksToAdvance: params.hooksToAdvance,
       lastBeatSummary: params.lastBeatSummary,
-      maxTokens: 250,
+      maxTokens: params.maxTokens ?? 250,
+      additionalMustInclude: params.additionalMustInclude ?? [],
+      additionalMustNotInclude: params.additionalMustNotInclude ?? [],
+      styleGuideOverride: params.styleGuideOverride,
+      motifIndexer: params.motifIndexer,
+      plannedMotif: params.plannedMotif,
     };
 
     const dnaResult = new DnaCompressor().compress(dnaInput);
@@ -148,11 +160,14 @@ export class AdaptationHooks {
     prose: string;
     dna: NarrativeDNA;
     beatType: BeatType;
+    chapterNumber?: number;
     extractEvents?: boolean;
   }): Promise<PostGenerationHooksResult> {
     const lexicalResult = this.lexicalMonitor.analyzeBeat(params.prose);
 
-    const auditResult = this.cascadeAuditor.audit(params.prose, params.dna);
+    const auditResult = this.cascadeAuditor.audit(params.prose, params.dna, {
+      chapterNumber: params.chapterNumber,
+    });
 
     const shouldRetry = !auditResult.passed && auditResult.issues.some(
       (i) => i.severity === "error" && i.code !== "WORD_COUNT_UNDER"
@@ -201,6 +216,22 @@ export class AdaptationHooks {
     }
   }
 
+  async saveStateDiff(params: {
+    chapter: number;
+    events: StateEvent[];
+    beatId?: string;
+    previousStateHash?: string;
+  }): Promise<void> {
+    await this.eventSourcer.saveStateDiff({
+      schemaVersion: 1,
+      chapter: params.chapter,
+      beatId: params.beatId,
+      timestamp: Date.now(),
+      events: params.events,
+      previousStateHash: params.previousStateHash,
+    });
+  }
+
   getSnapshot(): EntityStateSnapshot | null {
     return this.currentSnapshot;
   }
@@ -221,7 +252,7 @@ export class AdaptationHooks {
     return this.cascadeAuditor;
   }
 
-  private extractEventsFromProse(prose: string, beatType: BeatType): StateEvent[] {
+  extractEventsFromProse(prose: string, beatType: BeatType): StateEvent[] {
     const events: StateEvent[] = [];
 
     const characterNames = this.currentSnapshot?.entities?.characters
@@ -237,6 +268,15 @@ export class AdaptationHooks {
     });
 
     return events;
+  }
+
+  applyEvents(events: StateEvent[], chapter: number): EntityStateSnapshot | null {
+    if (!this.currentSnapshot) {
+      return null;
+    }
+
+    this.currentSnapshot = this.eventSourcer.applyEvents(this.currentSnapshot, events, chapter);
+    return this.currentSnapshot;
   }
 }
 
