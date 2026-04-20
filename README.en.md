@@ -5,7 +5,7 @@
 <h1 align="center">Monarch</h1>
 
 <p align="center">
-  <a href="README.md">中文</a> | English | <a href="README.ja.md">日本語</a>
+  <a href="README.md">中文</a> | <a href="README.en.md">English</a> | <a href="README.ja.md">日本語</a>
 </p>
 
 ---
@@ -16,6 +16,8 @@
 
 > [!WARNING]
 > ⚠️ Monarch is currently an early test/development version. Some features may be unstable. Feedback and suggestions are welcome.
+>
+> ⚠️ Currently verifying availability. Not recommended for production use.
 
 > [!NOTE]
 > Monarch shares the same environment configuration with InkOS and requires no separate setup. InkOS installation, configuration commands, and operation methods fully apply to Monarch.
