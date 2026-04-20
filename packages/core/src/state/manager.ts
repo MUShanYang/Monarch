@@ -1,4 +1,4 @@
-import { readFile, writeFile, mkdir, readdir, rm, stat, unlink, open } from "node:fs/promises";
+import { readFile, writeFile, mkdir, readdir, rm, stat, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import type { BookConfig } from "../models/book.js";
 import type { ChapterMeta } from "../models/chapter.js";
@@ -80,45 +80,53 @@ export class StateManager {
 
   async acquireBookLock(bookId: string): Promise<() => Promise<void>> {
     await mkdir(this.bookDir(bookId), { recursive: true });
-    const lockPath = join(this.bookDir(bookId), ".write.lock");
-    try {
-      const handle = await open(lockPath, "wx");
+    const lockDir = join(this.bookDir(bookId), ".write.lock");
+    const lockId = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    
+    const tryAcquire = async (retries: number = 3): Promise<() => Promise<void>> => {
       try {
-        await handle.writeFile(`pid:${process.pid} ts:${Date.now()}`, "utf-8");
-      } catch (error) {
-        await handle.close().catch(() => undefined);
-        await unlink(lockPath).catch(() => undefined);
-        throw error;
-      }
-      await handle.close();
-    } catch (e) {
-      const code = (e as NodeJS.ErrnoException | undefined)?.code;
-      if (code === "EEXIST") {
-        const lockData = await readFile(lockPath, "utf-8").catch(() => "pid:unknown ts:unknown");
-        const lockPid = this.extractLockPid(lockData);
-        const isStale =
-          (lockPid !== undefined && !this.isProcessAlive(lockPid)) ||
-          (lockPid === process.pid && !this.activeWrites.has(bookId));
-        if (isStale) {
-          await unlink(lockPath).catch(() => undefined);
-          return this.acquireBookLock(bookId);
+        await mkdir(lockDir, { recursive: false });
+        const lockFile = join(lockDir, "owner");
+        await writeFile(lockFile, `pid:${process.pid} lockId:${lockId} ts:${Date.now()}`, "utf-8");
+      } catch (e) {
+        const code = (e as NodeJS.ErrnoException | undefined)?.code;
+        if (code === "EEXIST") {
+          const lockFile = join(lockDir, "owner");
+          const lockData = await readFile(lockFile, "utf-8").catch(() => "pid:unknown ts:unknown");
+          const lockPid = this.extractLockPid(lockData);
+          const isStale =
+            (lockPid !== undefined && !this.isProcessAlive(lockPid)) ||
+            (lockPid === process.pid && !this.activeWrites.has(bookId));
+          if (isStale) {
+            await rm(lockDir, { recursive: true, force: true }).catch(() => undefined);
+            if (retries > 0) {
+              await new Promise((resolve) => setTimeout(resolve, 10));
+              return tryAcquire(retries - 1);
+            }
+          }
+          throw new Error(
+            `Book "${bookId}" is locked by another process (${lockData}). ` +
+              `If this is stale, delete ${lockDir}`,
+          );
         }
-        throw new Error(
-          `Book "${bookId}" is locked by another process (${lockData}). ` +
-            `If this is stale, delete ${lockPath}`,
-        );
+        throw e;
       }
-      throw e;
-    }
-    this.activeWrites.add(bookId);
-    return async () => {
-      this.activeWrites.delete(bookId);
-      try {
-        await unlink(lockPath);
-      } catch {
-        // ignore
-      }
+      this.activeWrites.add(bookId);
+      return async () => {
+        this.activeWrites.delete(bookId);
+        try {
+          const lockFile = join(lockDir, "owner");
+          const currentData = await readFile(lockFile, "utf-8").catch(() => "");
+          if (currentData.includes(`lockId:${lockId}`)) {
+            await rm(lockDir, { recursive: true, force: true });
+          }
+        } catch {
+          // ignore
+        }
+      };
     };
+    
+    return tryAcquire();
   }
 
   private extractLockPid(lockData: string): number | undefined {

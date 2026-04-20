@@ -44,8 +44,8 @@ export function createProgram(hooks: ProgramHooks = {}): Command {
   const program = new Command();
 
   program
-    .name("inkos")
-    .description("InkOS — Multi-agent novel production system")
+    .name("monarch")
+    .description("Monarch — AI long-form novel writing system")
     .version(version)
     .action(async () => {
       await launchStudioEntry(process.cwd(), "4567", { launchStudio: hooks.launchStudio });

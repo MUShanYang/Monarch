@@ -82,7 +82,7 @@ const logger = {
   error: vi.fn(),
 };
 
-vi.mock("@actalk/inkos-core", () => {
+vi.mock("@actalk/monarch-core", () => {
   class MockSessionAlreadyMigratedError extends Error {
     constructor(message = "Session already migrated") {
       super(message);

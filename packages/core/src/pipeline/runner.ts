@@ -1178,6 +1178,412 @@ export class PipelineRunner {
     }
   }
 
+  async writeNextChapterWithAdaptation(
+    bookId: string,
+    options?: {
+      wordCount?: number;
+      temperatureOverride?: number;
+      maxRetries?: number;
+    }
+  ): Promise<ChapterPipelineResult> {
+    const releaseLock = await this.state.acquireBookLock(bookId);
+    try {
+      return await this._writeNextChapterWithAdaptationLocked(bookId, options);
+    } finally {
+      await releaseLock();
+    }
+  }
+
+  private async _writeNextChapterWithAdaptationLocked(
+    bookId: string,
+    options?: {
+      wordCount?: number;
+      temperatureOverride?: number;
+      maxRetries?: number;
+    }
+  ): Promise<ChapterPipelineResult> {
+    await this.state.ensureControlDocuments(bookId);
+    const book = await this.state.loadBookConfig(bookId);
+    const bookDir = this.state.bookDir(bookId);
+    await this.assertNoPendingStateRepair(bookId);
+    const chapterNumber = await this.state.getNextChapterNumber(bookId);
+    const stageLanguage = await this.resolveBookLanguage(book);
+
+    const targetWordCount = options?.wordCount ?? book.chapterWordCount ?? 1500;
+    const { profile: gp } = await this.loadGenreProfile(book.genre);
+    const pipelineLang = book.language ?? gp.language;
+    const lengthSpec = buildLengthSpec(targetWordCount, pipelineLang);
+
+    this.logStage(stageLanguage, { zh: "准备章节输入", en: "preparing chapter inputs" });
+    const writeInput = await this.prepareWriteInput(
+      book,
+      bookDir,
+      chapterNumber,
+      this.config.externalContext,
+    );
+    const reducedControlInput = writeInput.chapterIntent && writeInput.contextPackage && writeInput.ruleStack
+      ? {
+          chapterIntent: writeInput.chapterIntent,
+          contextPackage: writeInput.contextPackage,
+          ruleStack: writeInput.ruleStack,
+        }
+      : undefined;
+
+    this.logStage(stageLanguage, { zh: "组合章节运行时上下文", en: "composing chapter runtime context" });
+    const { ChapterPipelineAdapter } = await import("../adaptation/index.js");
+    const pipeline = new ChapterPipelineAdapter(bookDir);
+    const llmInterface = await this.buildAdaptationLLMInterface(options?.temperatureOverride);
+    pipeline.setLLMInterface(llmInterface);
+
+    const { generateChapterWithAdaptation } = await import("../adaptation/index.js");
+    this.logStage(stageLanguage, { zh: "撰写章节草稿", en: "writing chapter draft" });
+    const generationResult = await generateChapterWithAdaptation(bookDir, {
+      chapterNumber,
+      targetWordRange: [Math.floor(targetWordCount * 0.8), Math.floor(targetWordCount * 1.2)],
+      startTension: 5,
+      endTension: 7,
+      maxBeats: 20,
+      minBeats: 5,
+      hooksToAdvance: [],
+      hooksToResolve: [],
+      focusCharacterIds: [],
+      beatTypes: ["environment", "action", "dialogue", "interiority", "tension", "resolution"],
+      llmInterface,
+    });
+
+    if (!generationResult.completed) {
+      throw new Error(`Chapter generation failed: ${generationResult.failureReason}`);
+    }
+
+    const adaptationWordCount = generationResult.wordCount;
+    if (generationResult.auditSummary.errorCount > 0) {
+      this.logWarn(stageLanguage, {
+        zh: `审计发现 ${generationResult.auditSummary.errorCount} 个错误，${generationResult.auditSummary.warningCount} 个警告`,
+        en: `Audit found ${generationResult.auditSummary.errorCount} errors, ${generationResult.auditSummary.warningCount} warnings`,
+      });
+    }
+
+    const adaptationTitle = `Chapter ${chapterNumber}`;
+    const adaptationOutput: WriteChapterOutput = {
+      chapterNumber,
+      title: adaptationTitle,
+      content: generationResult.prose,
+      wordCount: adaptationWordCount,
+      preWriteCheck: "",
+      postSettlement: "",
+      updatedState: "",
+      updatedLedger: "",
+      updatedHooks: "",
+      chapterSummary: "",
+      updatedSubplots: "",
+      updatedEmotionalArcs: "",
+      updatedCharacterMatrix: "",
+      postWriteErrors: [],
+      postWriteWarnings: [],
+      tokenUsage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
+    };
+
+    const writerCount = countChapterLength(adaptationOutput.content, lengthSpec.countingMode);
+    let totalUsage: TokenUsageSummary = adaptationOutput.tokenUsage ?? { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
+    const auditor = new ContinuityAuditor(this.agentCtxFor("auditor", bookId));
+    const reviewResult = await runChapterReviewCycle({
+      book: { genre: book.genre },
+      bookDir,
+      chapterNumber,
+      initialOutput: {
+        content: adaptationOutput.content,
+        wordCount: adaptationOutput.wordCount,
+        postWriteErrors: [],
+      },
+      reducedControlInput,
+      lengthSpec,
+      initialUsage: totalUsage,
+      createReviser: () => new ReviserAgent(this.agentCtxFor("reviser", bookId)),
+      auditor,
+      normalizeDraftLengthIfNeeded: (chapterContent) => this.normalizeDraftLengthIfNeeded({
+        bookId,
+        chapterNumber,
+        chapterContent,
+        lengthSpec,
+        chapterIntent: writeInput.chapterIntent,
+      }),
+      assertChapterContentNotEmpty: (content, stage) =>
+        this.assertChapterContentNotEmpty(content, chapterNumber, stage),
+      addUsage: PipelineRunner.addUsage,
+      restoreLostAuditIssues: (previous, next) => this.restoreLostAuditIssues(previous, next),
+      analyzeAITells,
+      analyzeSensitiveWords,
+      logWarn: (message) => this.logWarn(pipelineLang, message),
+      logStage: (message) => this.logStage(stageLanguage, message),
+    });
+    totalUsage = reviewResult.totalUsage;
+    let finalContent = reviewResult.finalContent;
+    let finalWordCount = reviewResult.finalWordCount;
+    let revised = reviewResult.revised;
+    let auditResult = reviewResult.auditResult;
+    const postReviseCount = reviewResult.postReviseCount;
+    const normalizeApplied = reviewResult.normalizeApplied;
+
+    this.logStage(stageLanguage, { zh: "落盘最终章节", en: "persisting final chapter" });
+    this.logStage(stageLanguage, { zh: "生成最终真相文件", en: "rebuilding final truth files" });
+    const chapterIndexBeforePersist = await this.state.loadChapterIndex(bookId);
+    const { resolveDuplicateTitle } = await import("../agents/post-write-validator.js");
+    const initialTitleResolution = resolveDuplicateTitle(
+      adaptationOutput.title,
+      chapterIndexBeforePersist.map((chapter) => chapter.title),
+      pipelineLang,
+      { content: finalContent },
+    );
+    let persistenceOutput = await this.buildPersistenceOutput(
+      bookId,
+      book,
+      bookDir,
+      chapterNumber,
+      initialTitleResolution.title === adaptationOutput.title
+        ? adaptationOutput
+        : { ...adaptationOutput, title: initialTitleResolution.title },
+      finalContent,
+      lengthSpec.countingMode,
+      reducedControlInput,
+    );
+    const finalTitleResolution = resolveDuplicateTitle(
+      persistenceOutput.title,
+      chapterIndexBeforePersist.map((chapter) => chapter.title),
+      pipelineLang,
+      { content: finalContent },
+    );
+    if (finalTitleResolution.title !== persistenceOutput.title) {
+      persistenceOutput = { ...persistenceOutput, title: finalTitleResolution.title };
+    }
+    if (persistenceOutput.title !== adaptationOutput.title) {
+      const description = pipelineLang === "en"
+        ? `Chapter title "${adaptationOutput.title}" was auto-adjusted to "${persistenceOutput.title}".`
+        : `章节标题"${adaptationOutput.title}"已自动调整为"${persistenceOutput.title}"。`;
+      this.config.logger?.warn(`[title] ${description}`);
+      auditResult = {
+        ...auditResult,
+        issues: [...auditResult.issues, {
+          severity: "warning",
+          category: "title-dedup",
+          description,
+          suggestion: pipelineLang === "en"
+            ? "If the auto-renamed title is weak, revise the chapter title manually."
+            : "如果自动改名不理想，可以在后续手动修订章节标题。",
+        }],
+      };
+    }
+    const longSpanFatigue = await analyzeLongSpanFatigue({
+      bookDir,
+      chapterNumber,
+      chapterContent: finalContent,
+      chapterSummary: persistenceOutput.chapterSummary,
+      language: pipelineLang,
+    });
+    auditResult = {
+      ...auditResult,
+      issues: [
+        ...auditResult.issues,
+        ...longSpanFatigue.issues,
+        ...(persistenceOutput.hookHealthIssues ?? []),
+      ],
+    };
+    finalWordCount = persistenceOutput.wordCount;
+    const lengthWarnings = this.buildLengthWarnings(chapterNumber, finalWordCount, lengthSpec);
+    const lengthTelemetry = this.buildLengthTelemetry({
+      lengthSpec,
+      writerCount,
+      postWriterNormalizeCount: reviewResult.preAuditNormalizedWordCount,
+      postReviseCount,
+      finalCount: finalWordCount,
+      normalizeApplied,
+      lengthWarning: lengthWarnings.length > 0,
+    });
+    this.logLengthWarnings(lengthWarnings);
+
+    this.logStage(stageLanguage, { zh: "校验真相文件变更", en: "validating truth file updates" });
+    const storyDir = join(bookDir, "story");
+    const [oldState, oldHooks, oldLedger] = await Promise.all([
+      readFile(join(storyDir, "current_state.md"), "utf-8").catch(() => ""),
+      readFile(join(storyDir, "pending_hooks.md"), "utf-8").catch(() => ""),
+      readFile(join(storyDir, "particle_ledger.md"), "utf-8").catch(() => ""),
+    ]);
+    const validator = new StateValidatorAgent(this.agentCtxFor("state-validator", bookId));
+    const writerForValidation = new WriterAgent(this.agentCtxFor("writer", bookId));
+    const truthValidation = await validateChapterTruthPersistence({
+      writer: writerForValidation,
+      validator,
+      book,
+      bookDir,
+      chapterNumber,
+      title: persistenceOutput.title,
+      content: finalContent,
+      persistenceOutput,
+      auditResult,
+      previousTruth: { oldState, oldHooks, oldLedger },
+      reducedControlInput,
+      language: pipelineLang,
+      logWarn: (message) => this.logWarn(pipelineLang, message),
+      logger: this.config.logger,
+    });
+    let chapterStatus: ChapterPipelineResult["status"] | null = truthValidation.chapterStatus;
+    let degradedIssues: ReadonlyArray<AuditIssue> = truthValidation.degradedIssues;
+    persistenceOutput = truthValidation.persistenceOutput;
+    auditResult = truthValidation.auditResult;
+
+    {
+      const { detectParagraphLengthDrift, detectParagraphShapeWarnings } = await import("../agents/post-write-validator.js");
+      const chapDir = join(bookDir, "chapters");
+      const recentFiles = (await readdir(chapDir).catch(() => [] as string[]))
+        .filter((f) => f.endsWith(".md") && /^\d{4}/.test(f))
+        .sort()
+        .slice(-5);
+      const recentContent = (await Promise.all(
+        recentFiles.map((f) => readFile(join(chapDir, f), "utf-8").catch(() => "")),
+      )).join("\n\n");
+      const paragraphIssues = [
+        ...detectParagraphShapeWarnings(finalContent, pipelineLang),
+        ...detectParagraphLengthDrift(finalContent, recentContent, pipelineLang),
+      ];
+      if (paragraphIssues.length > 0) {
+        for (const issue of paragraphIssues) {
+          this.config.logger?.warn(`[paragraph] ${issue.description}`);
+        }
+        auditResult = {
+          ...auditResult,
+          issues: [...auditResult.issues, ...paragraphIssues.map((v) => ({
+            severity: v.severity as "warning",
+            category: "paragraph-shape",
+            description: v.description,
+            suggestion: v.suggestion,
+          }))],
+        };
+      }
+    }
+
+    const resolvedStatus = chapterStatus ?? (auditResult.passed ? "ready-for-review" : "audit-failed");
+    await persistChapterArtifacts({
+      chapterNumber,
+      chapterTitle: persistenceOutput.title,
+      status: resolvedStatus,
+      auditResult,
+      finalWordCount,
+      lengthWarnings,
+      lengthTelemetry,
+      degradedIssues,
+      tokenUsage: totalUsage,
+      loadChapterIndex: () => this.state.loadChapterIndex(bookId),
+      saveChapter: () => writerForValidation.saveChapter(bookDir, persistenceOutput, gp.numericalSystem, pipelineLang),
+      saveTruthFiles: async () => {
+        await writerForValidation.saveNewTruthFiles(bookDir, persistenceOutput, pipelineLang);
+        await this.syncLegacyStructuredStateFromMarkdown(bookDir, chapterNumber, persistenceOutput);
+        this.logStage(stageLanguage, { zh: "同步记忆索引", en: "syncing memory indexes" });
+        await this.syncNarrativeMemoryIndex(bookId);
+      },
+      saveChapterIndex: (index) => this.state.saveChapterIndex(bookId, index),
+      markBookActiveIfNeeded: () => this.markBookActiveIfNeeded(bookId),
+      persistAuditDriftGuidance: (issues) => this.persistAuditDriftGuidance({
+        bookDir,
+        chapterNumber,
+        issues,
+        language: stageLanguage,
+      }).catch(() => undefined),
+      snapshotState: () => this.state.snapshotState(bookId, chapterNumber),
+      syncCurrentStateFactHistory: () => this.syncCurrentStateFactHistory(bookId, chapterNumber),
+      logSnapshotStage: () =>
+        this.logStage(stageLanguage, { zh: "更新章节索引与快照", en: "updating chapter index and snapshots" }),
+    });
+
+    if (this.config.notifyChannels && this.config.notifyChannels.length > 0) {
+      const statusEmoji = resolvedStatus === "state-degraded"
+        ? "🧯"
+        : auditResult.passed ? "✅" : "⚠️";
+      const chapterLength = formatLengthCount(finalWordCount, lengthSpec.countingMode);
+      await dispatchNotification(this.config.notifyChannels, {
+        title: `${statusEmoji} ${book.title} 第${chapterNumber}章`,
+        body: [
+          `**${persistenceOutput.title}** | ${chapterLength}`,
+          revised ? "📝 已自动修正" : "",
+          resolvedStatus === "state-degraded"
+            ? "状态结算: 已降级保存，需先修复 state 再继续"
+            : `审稿: ${auditResult.passed ? "通过" : "需人工审核"}`,
+          ...auditResult.issues
+            .filter((i) => i.severity !== "info")
+            .map((i) => `- [${i.severity}] ${i.description}`),
+        ].filter(Boolean).join("\n"),
+      });
+    }
+
+    await this.emitWebhook("pipeline-complete", bookId, chapterNumber, {
+      title: persistenceOutput.title,
+      wordCount: finalWordCount,
+      passed: auditResult.passed,
+      revised,
+      status: resolvedStatus,
+    });
+
+    return {
+      chapterNumber,
+      title: persistenceOutput.title,
+      wordCount: finalWordCount,
+      auditResult,
+      revised,
+      status: resolvedStatus,
+      lengthWarnings,
+      lengthTelemetry,
+      tokenUsage: totalUsage,
+    };
+  }
+
+  private async buildAdaptationLLMInterface(temperatureOverride?: number) {
+    return {
+      async callLLM(prompt: string, systemPrompt: string, constraints: { maxTokens?: number }): Promise<string> {
+        const maxRetries = 3;
+        let lastError: Error | undefined;
+
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+          if (attempt > 1) {
+            const delayMs = attempt === 2 ? 2000 : 5000;
+            await new Promise(r => setTimeout(r, delayMs));
+          }
+
+          try {
+            const response = await fetch("http://127.0.0.1:1234/v1/chat/completions", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                model: "google/gemma-4-e4b",
+                messages: [
+                  { role: "system", content: systemPrompt },
+                  { role: "user", content: prompt },
+                ],
+                max_tokens: constraints.maxTokens ?? 131072,
+                temperature: temperatureOverride ?? 0.8,
+              }),
+            });
+
+            if (!response.ok) {
+              const errorBody = await response.text();
+              throw new Error(`LLM call failed: ${response.status} - ${errorBody}`);
+            }
+
+            const data = await response.json() as { choices: Array<{ message: { content: string } }> };
+            return data.choices[0]?.message?.content ?? "";
+          } catch (err: unknown) {
+            lastError = err instanceof Error ? err : new Error(String(err));
+            const message = lastError.message;
+            if (message.includes("Model reloaded") || message.includes("ECONNRESET") || message.includes("ECONNREFUSED")) {
+              console.warn(`[monarch] LLM model reload error, retrying (${attempt}/${maxRetries})...`);
+              continue;
+            }
+            throw lastError;
+          }
+        }
+
+        throw lastError ?? new Error("LLM call failed after retries");
+      },
+    };
+  }
+
   private async _writeNextChapterLocked(bookId: string, wordCount?: number, temperatureOverride?: number): Promise<ChapterPipelineResult> {
     await this.state.ensureControlDocuments(bookId);
     const book = await this.state.loadBookConfig(bookId);

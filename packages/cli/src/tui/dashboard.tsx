@@ -6,7 +6,7 @@ import {
   type InteractionIntentType,
   type InteractionRuntimeTools,
   type InteractionSession,
-} from "@actalk/inkos-core";
+} from "@actalk/monarch-core";
 import { Box, Text, useApp, useInput } from "ink";
 import { processTuiAgentInput } from "./agent-input.js";
 import { describeActivityState } from "./activity-state.js";

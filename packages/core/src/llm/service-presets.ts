@@ -44,6 +44,7 @@ export const SERVICE_PRESETS: Record<string, ServicePreset> = {
   ppio:        { providerFamily: "openai",    api: "openai-completions", baseUrl: "https://api.ppinfra.com/v3/openai",                  label: "PPIO" },
   openrouter:  { providerFamily: "openai",    api: "openai-responses",   baseUrl: "https://openrouter.ai/api/v1",                       label: "OpenRouter",      piProvider: "openrouter" },
   ollama:      { providerFamily: "openai",    api: "openai-completions", baseUrl: "http://localhost:11434/v1",                          label: "Ollama (本地)" },
+  lmstudio:    { providerFamily: "openai",    api: "openai-completions", baseUrl: "http://127.0.0.1:1234/v1",                           label: "LM Studio (本地)", temperatureRange: [0, 2], defaultTemperature: 0.7, writingTemperature: 0.8, temperatureHint: "4B 模型推荐配合 --adaptation 模式使用" },
   custom:      { providerFamily: "openai",    api: "openai-completions", baseUrl: "",                                                    label: "自定义端点" },
 };
 

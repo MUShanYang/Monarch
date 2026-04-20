@@ -1,5 +1,5 @@
 import { Command } from "commander";
-import { PipelineRunner, StateManager } from "@actalk/inkos-core";
+import { PipelineRunner, StateManager } from "@actalk/monarch-core";
 import { readdir, stat, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
@@ -17,6 +17,8 @@ writeCommand
   .option("--words <n>", "Words per chapter (overrides book config)")
   .option("--context <text>", "Creative guidance (natural language)")
   .option("--context-file <path>", "Read guidance from file")
+  .option("--no-adaptation", "Disable Small Model Adaptation Layer (use full model)")
+  .option("--max-retries <n>", "Max retries for adaptation mode", "2")
   .option("--json", "Output JSON")
   .option("-q, --quiet", "Suppress console output")
   .action(async (bookIdArg: string | undefined, opts) => {
@@ -37,12 +39,21 @@ writeCommand
 
       const count = parseInt(opts.count, 10);
       const wordCount = opts.words ? parseInt(opts.words, 10) : undefined;
+      const maxRetries = parseInt(opts.maxRetries, 10);
+      const useAdaptation = opts.adaptation ?? true;
 
       const results = [];
       for (let i = 0; i < count; i++) {
-        if (!opts.json) log(formatWriteNextProgress(language, i + 1, count, bookId));
+        if (!opts.json) {
+          const modeText = useAdaptation
+            ? (language === "en" ? " (Adaptation Mode)" : " (Adaptation 模式)")
+            : "";
+          log(formatWriteNextProgress(language, i + 1, count, bookId) + modeText);
+        }
 
-        const result = await pipeline.writeNextChapter(bookId, wordCount);
+        const result = useAdaptation
+          ? await pipeline.writeNextChapterWithAdaptation(bookId, { wordCount, maxRetries })
+          : await pipeline.writeNextChapter(bookId, wordCount);
         results.push(result);
 
         if (!opts.json) {
@@ -108,7 +119,7 @@ writeCommand
         if (isNaN(chapter)) throw new Error(`Expected chapter number, got "${args[1]}"`);
         bookId = await resolveBookId(args[0], root);
       } else {
-        throw new Error("Usage: inkos write rewrite [book-id] <chapter>");
+        throw new Error("Usage: monarch write rewrite [book-id] <chapter>");
       }
 
       if (!opts.force) {
@@ -231,7 +242,7 @@ writeCommand
         if (isNaN(chapter)) throw new Error(`Expected chapter number, got "${args[1]}"`);
         bookId = await resolveBookId(args[0], root);
       } else {
-        throw new Error("Usage: inkos write sync [book-id] <chapter>");
+        throw new Error("Usage: monarch write sync [book-id] <chapter>");
       }
 
       const state = new StateManager(root);
@@ -288,7 +299,7 @@ writeCommand
         if (isNaN(chapter)) throw new Error(`Expected chapter number, got "${args[1]}"`);
         bookId = await resolveBookId(args[0], root);
       } else {
-        throw new Error("Usage: inkos write repair-state [book-id] <chapter>");
+        throw new Error("Usage: monarch write repair-state [book-id] <chapter>");
       }
 
       const state = new StateManager(root);

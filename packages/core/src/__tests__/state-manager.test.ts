@@ -623,15 +623,15 @@ describe("StateManager", () => {
       const release = await manager.acquireBookLock("lock-book");
       expect(typeof release).toBe("function");
 
-      // Lock file should exist
+      // Lock directory should exist
       const lockPath = join(manager.bookDir("lock-book"), ".write.lock");
       const lockStat = await stat(lockPath);
-      expect(lockStat.isFile()).toBe(true);
+      expect(lockStat.isDirectory()).toBe(true);
 
       // Release the lock
       await release();
 
-      // Lock file should be gone
+      // Lock directory should be gone
       await expect(stat(lockPath)).rejects.toThrow();
     });
 
@@ -680,15 +680,18 @@ describe("StateManager", () => {
 
     it("reclaims same-process stale lock when no active write is in progress", async () => {
       await mkdir(manager.bookDir("lock-book-self"), { recursive: true });
-      const lockPath = join(manager.bookDir("lock-book-self"), ".write.lock");
+      const lockDir = join(manager.bookDir("lock-book-self"), ".write.lock");
       // Simulate a stale lock left by our own process (e.g. after a failed pipeline)
-      await writeFile(lockPath, `pid:${process.pid} ts:${Date.now() - 60000}`, "utf-8");
+      await mkdir(lockDir, { recursive: true });
+      const lockFile = join(lockDir, "owner");
+      await writeFile(lockFile, `pid:${process.pid} ts:${Date.now() - 60000}`, "utf-8");
 
       // Should auto-reclaim since our process knows it's not actively writing this book
       const release = await manager.acquireBookLock("lock-book-self");
       expect(typeof release).toBe("function");
 
-      const lockData = await readFile(lockPath, "utf-8");
+      const newLockFile = join(lockDir, "owner");
+      const lockData = await readFile(newLockFile, "utf-8");
       expect(lockData).toContain(`pid:${process.pid}`);
 
       await release();
@@ -696,8 +699,10 @@ describe("StateManager", () => {
 
     it("reclaims a stale lock when the recorded pid is no longer alive", async () => {
       await mkdir(manager.bookDir("lock-book-5"), { recursive: true });
-      const lockPath = join(manager.bookDir("lock-book-5"), ".write.lock");
-      await writeFile(lockPath, "pid:424242 ts:123", "utf-8");
+      const lockDir = join(manager.bookDir("lock-book-5"), ".write.lock");
+      await mkdir(lockDir, { recursive: true });
+      const lockFile = join(lockDir, "owner");
+      await writeFile(lockFile, "pid:424242 ts:123", "utf-8");
 
       const killSpy = vi.spyOn(process, "kill").mockImplementation((((pid: number) => {
         if (pid === 424242) {
@@ -710,7 +715,8 @@ describe("StateManager", () => {
 
       try {
         const release = await manager.acquireBookLock("lock-book-5");
-        const lockData = await readFile(lockPath, "utf-8");
+        const newLockFile = join(lockDir, "owner");
+        const lockData = await readFile(newLockFile, "utf-8");
 
         expect(typeof release).toBe("function");
         expect(lockData).toContain(`pid:${process.pid}`);

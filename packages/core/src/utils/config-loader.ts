@@ -68,7 +68,7 @@ export async function loadProjectConfig(
     await access(configPath);
   } catch {
     throw new Error(
-      `inkos.json not found in ${root}.\nMake sure you are inside an InkOS project directory (cd into the project created by 'inkos init').`,
+      `inkos.json not found in ${root}.\nMake sure you are inside a Monarch project directory (cd into the project created by 'monarch init').`,
     );
   }
 
@@ -184,7 +184,7 @@ export async function loadProjectConfig(
 
   if (!apiKey && options?.requireApiKey !== false && !apiKeyOptional) {
     throw new Error(
-      "INKOS_LLM_API_KEY not set. Run 'inkos config set-global' or add it to project .env file.",
+      "INKOS_LLM_API_KEY not set. Run 'monarch config set-global' or add it to project .env file.",
     );
   }
   if (options?.requireApiKey === false) {

@@ -1,17 +1,8 @@
 <p align="center">
-  <img src="assets/logo.svg" width="120" height="120" alt="InkOS Logo">
-  <img src="assets/inkos-text.svg" width="240" height="65" alt="InkOS">
+  <img src="assets/logo.svg" width="120" height="120" alt="Monarch Logo">
 </p>
 
-<h1 align="center">Autonomous Novel Writing AI Agent</h1>
-
-<p align="center">
-  <a href="https://www.npmjs.com/package/@actalk/inkos"><img src="https://img.shields.io/npm/v/@actalk/inkos.svg?color=cb3837&logo=npm" alt="npm version"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-AGPL%20v3-blue.svg" alt="License: AGPL-3.0"></a>
-  <a href="https://github.com/Narcooo/inkos/stargazers"><img src="https://img.shields.io/github/stars/Narcooo/inkos?style=flat&logo=github&color=yellow" alt="GitHub stars"></a>
-  <a href="https://www.npmjs.com/package/@actalk/inkos"><img src="https://img.shields.io/npm/dm/@actalk/inkos?color=cb3837&logo=npm&label=downloads" alt="npm downloads"></a>
-  <a href="https://clawhub.ai/narcooo/inkos"><img src="https://img.shields.io/badge/🦞%20ClawHub-Skill-FF6B35?labelColor=1a1a1a" alt="ClawHub Skill"></a>
-</p>
+<h1 align="center">Monarch</h1>
 
 <p align="center">
   <a href="README.md">中文</a> | English | <a href="README.ja.md">日本語</a>
@@ -19,419 +10,489 @@
 
 ---
 
-Open-source AI Agent that autonomously writes, audits, and revises novels — with human review gates that keep you in control. Supports LitRPG, Progression Fantasy, Isekai, Romantasy, Sci-Fi, and more. Continuation, spinoff, fanfic, and style imitation workflows built in.
+## Overview
 
-**InkOS Studio 2.0 is here!** — run `inkos` to launch the local web workbench. Book management, chapter review & editing, real-time writing progress, market radar, analytics, AI detection, style analysis, genre management, daemon control, truth file editing — everything the CLI does, now visual.
+**Monarch** is a small-model writing Agent built on [InkOS](https://github.com/Narcooo/inkos). Focused on handling complex logic such as worldbuilding, characters, and events.
 
-**InkOS TUI is here!** — run `inkos tui` to launch a full-screen interactive dashboard. Conversational creation, natural-language book operations, slash command autocomplete, themed animations — TUI, Studio, and OpenClaw share the same interaction kernel.
+> [!WARNING]
+> ⚠️ Monarch is currently an early test/development version. Some features may be unstable. Feedback and suggestions are welcome.
 
-**Native English novel writing now supported！** — 10 built-in English genre profiles with dedicated pacing rules, fatigue word lists, and audit dimensions. Set `--lang en` and go.
+> [!NOTE]
+> Monarch shares the same environment configuration with InkOS and requires no separate setup. InkOS installation, configuration commands, and operation methods fully apply to Monarch.
+>
+> For InkOS's complete features, commands, and usage, please refer to the [InkOS official repository](https://github.com/Narcooo/inkos).
 
-## Quick Start
+### Core Philosophy
 
-### Install
+The model only writes sentences; the system tracks worldbuilding.
 
-```bash
-npm i -g @actalk/inkos
+A 4B-parameter small model lacks sufficient capacity to handle complex logical reasoning and creative writing simultaneously. Monarch's approach is:
+
+- **Pure TypeScript handles all logic**: Motif tracking, emotional arcs, beat planning, consistency auditing
+- **LLM only generates text**: Outputs specification-compliant prose under strict API constraints
+
+## Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    Monarch CLI                          │
+│                                                         │
+│  User Input → Adaptation Layer → InkOS Pipeline → Output│
+│                                                         │
+│  ┌─────────────┐  ┌──────────────┐  ┌───────────────┐  │
+│  │  Motif      │  │  Narrative   │  │  Cascade      │  │
+│  │  Indexer    │  │  DNA         │  │  Auditor      │  │
+│  └──────┬──────┘  └──────┬───────┘  └───────┬───────┘  │
+│         │                │                  │           │
+│  ┌──────┴──────┐  ┌──────┴───────┐  ┌───────┴───────┐  │
+│  │  Sensory    │  │  Beat        │  │  Show-Don't-  │  │
+│  │  Echo       │  │  Planner     │  │  Tell Scalpel │  │
+│  └─────────────┘  └──────────────┘  └───────────────┘  │
+└─────────────────────────────────────────────────────────┘
 ```
 
-### Use via OpenClaw 🦞
+## Write Command Execution Flow
 
-InkOS is published as an [OpenClaw](https://clawhub.ai/narcooo/inkos) Skill, callable by any compatible agent (Claude Code, OpenClaw, etc.):
+### 1. CLI Entry Point
 
-```bash
-clawhub install inkos          # Install from ClawHub
+**File**: `packages/cli/src/commands/write.ts`
+
+When user executes `inkos write next <book-id>`, CLI chooses different Pipeline method based on Adaptation mode:
+
+```typescript
+// Lines 54-56
+const result = useAdaptation
+  ? await pipeline.writeNextChapterWithAdaptation(bookId, { wordCount, maxRetries })
+  : await pipeline.writeNextChapter(bookId, wordCount);
 ```
 
-If you installed via npm or cloned the repo, `skills/SKILL.md` is already included — 🦞 can read it directly without a separate ClawHub install.
+| Mode | Method | Description |
+|------|--------|-------------|
+| **Adaptation Mode** (default) | `writeNextChapterWithAdaptation()` | Uses small model adaptation layer, saves tokens |
+| **Full Model Mode** | `writeNextChapter()` | Directly calls standard InkOS Pipeline, full model capability |
 
-Once installed, Claw should prefer the shared interaction entry:
-
-```bash
-inkos interact --json --message "continue the current book, but keep the pacing tighter"
-```
-
-This routes through the same conversation executor used by the project TUI, so OpenClaw, TUI, and Studio stay on the same control brain. The JSON payload includes:
-- parsed request
-- assistant response text
-- updated interaction session
-- execution state
-- pending decision
-- recent events
-
-Atomic commands (`plan chapter` / `compose chapter` / `draft` / `audit` / `revise` / `write next`) are still available, but they are now lower-level tools rather than the preferred OpenClaw entry. You can also browse it on [ClawHub](https://clawhub.ai) by searching `inkos`.
-
-### Configure
-
-**Option 1: Global config (recommended, one-time setup)**
+#### Switching Modes
 
 ```bash
-inkos config set-global \
-  --lang en \
-  --provider <openai|anthropic|custom> \
-  --base-url <API endpoint> \
-  --api-key <your API key> \
-  --model <model name>
+# Default: Use Adaptation mode (small model)
+monarch write next my-book
 
-# provider: openai / anthropic / custom (use custom for OpenAI-compatible proxies)
-# base-url: your API provider URL
-# api-key: your API key
-# model: your model name
+# Switch to full model mode
+monarch write next my-book --no-adaptation
 ```
 
-`--lang en` sets English as the default writing language for all projects. Saved to `~/.inkos/.env`. New projects just work without extra config.
-
-**Option 2: Per-project `.env`**
-
-```bash
-inkos init my-novel     # Initialize project
-# Edit my-novel/.env
-```
-
-```bash
-# Required
-INKOS_LLM_PROVIDER=                               # openai / anthropic / custom (use custom for any OpenAI-compatible API)
-INKOS_LLM_BASE_URL=                               # API endpoint
-INKOS_LLM_API_KEY=                                 # API Key
-INKOS_LLM_MODEL=                                   # Model name
-
-# Language (defaults to global setting or genre default)
-# INKOS_DEFAULT_LANGUAGE=en                        # en or zh
-
-# Optional
-# INKOS_LLM_TEMPERATURE=0.7                       # Temperature
-# INKOS_LLM_MAX_TOKENS=8192                        # Max output tokens
-# INKOS_LLM_THINKING_BUDGET=0                      # Anthropic extended thinking budget
-```
-
-Project `.env` overrides global config. Skip it if no override needed.
-
-**Option 3: Multi-model routing (optional)**
-
-Assign different models to different agents — balance quality and cost:
-
-```bash
-# Assign different models/providers to different agents
-inkos config set-model writer <model> --provider <provider> --base-url <url> --api-key-env <ENV_VAR>
-inkos config set-model auditor <model> --provider <provider>
-inkos config show-models        # View current routing
-```
-
-Agents without explicit overrides fall back to the global model.
-
-### v1.2 Update
-
-**Unified Interaction Kernel + TUI Dashboard + Studio Assistant**
-
-- **Shared Interaction Runtime**: TUI, Studio, `inkos interact`, and OpenClaw Skill share a single NL understanding + execution kernel, supporting 15+ intents (write, revise, rewrite, rename, export, switch book, etc.)
-- **Ink TUI Dashboard**: `inkos` launches a full-screen interactive dashboard (Ink + React) with conversational creation, slash command autocomplete, themed animations, and bilingual i18n
-- **Studio Assistant Panel**: right-side AI assistant panel connects to the shared interaction kernel — natural language book operations (rename, write, audit, export) with real-time execution status
-- **Conversational Book Creation**: brainstorm book settings through natural language dialogue, one-click create when draft is ready
-- **Book-wide Entity Rename**: `rename Lin Jin to Zhang San` or `/rename Lin Jin => Zhang San` — scans all chapters + truth files in one pass
-- **`inkos interact`**: shared interaction JSON endpoint for OpenClaw / external agent integration
-- **Thinking Model Temperature Clamp**: kimi-k2.5 and similar thinking models auto-clamped to temperature=1, compatible with per-call temperature overrides
-- **Studio Dead Code Cleanup**: removed unused shadcn components and dependencies, -2800 lines
-
-### Write Your First Book
-
-English is the default for English genre profiles. Pick a genre and go:
-
-```bash
-inkos book create --title "The Last Delver" --genre litrpg     # LitRPG novel (English by default)
-inkos write next my-book          # Write next chapter (full pipeline: draft → audit → revise)
-inkos status                      # Check status
-inkos review list my-book         # Review drafts
-inkos review approve-all my-book  # Batch approve
-inkos export my-book --format epub  # Export EPUB (read on phone/Kindle)
-```
-
-Language is set per-genre by default. Override explicitly with `--lang en` or `--lang zh`. Use `inkos genre list` to see all available genres and their default languages.
-
-<p align="center">
-  <img src="assets/screenshot-terminal.png" width="700" alt="Terminal screenshot">
-</p>
+> [!NOTE]
+> `--no-adaptation` skips the Adaptation Layer and directly uses the full InkOS multi-Agent pipeline. Suitable for scenarios requiring stronger generation capability but with higher token consumption.
 
 ---
 
-## English Genre Profiles
+### 2. Adaptation Mode Main Flow
 
-InkOS ships with 10 English-native genre profiles. Each includes genre-specific rules, pacing, fatigue word detection, and audit dimensions:
+**File**: `packages/core/src/pipeline/runner.ts` → `_writeNextChapterWithAdaptationLocked()`
 
-| Genre | Key Mechanics |
-|-------|--------------|
-| **LitRPG** | Numerical system, power scaling, stat progression |
-| **Progression Fantasy** | Power scaling, no numerical system required |
-| **Isekai** | Era research, world contrast, cultural fish-out-of-water |
-| **Cultivation** | Power scaling, realm progression |
-| **System Apocalypse** | Numerical system, survival mechanics |
-| **Dungeon Core** | Numerical system, power scaling, territory management |
-| **Romantasy** | Emotional arcs, dual POV pacing |
-| **Sci-Fi** | Era research, tech consistency |
-| **Tower Climber** | Numerical system, floor progression |
-| **Cozy Fantasy** | Low-stakes pacing, comfort-first tone |
-
-Also supports 5 Chinese web novel genres (xuanhuan, xianxia, urban, horror, other) for bilingual creators.
-
-Every genre includes a **fatigue word list** (e.g., "delve", "tapestry", "testament", "intricate", "pivotal" for LitRPG) — the auditor flags these automatically so your prose doesn't read like every other AI-generated novel.
+```
+┌─────────────────────────────────────────────────────────────┐
+│         _writeNextChapterWithAdaptationLocked               │
+├─────────────────────────────────────────────────────────────┤
+│  1. Initialize AdaptationHooks                               │
+│     └── hooks.initialize()                                  │
+│         ├── EventSourcer.loadSnapshot() → Load entity state │
+│         ├── IntentCompiler.compile() → Compile bible to weights│
+│         └── LexicalMonitor.addAiTellWords() → Load AI tell words│
+│                                                              │
+│  2. Build LLM Interface                                     │
+│     └── buildAdaptationLLMInterface()                       │
+│         └── Bridge to InkOS LLMProvider                    │
+│                                                              │
+│  3. Call ChapterPipelineAdapter                             │
+│     └── ChapterPipelineAdapter.generateChapter()            │
+│         ├── planBeats() → Beat planning                    │
+│         └── generateBeat() → Each beat                     │
+│                                                              │
+│  4. Write chapter file + Update state                      │
+└─────────────────────────────────────────────────────────────┘
+```
 
 ---
 
-## Key Features
+### 3. AdaptationHooks Components
 
-### 33-Dimension Audit + De-AI-ification
+**File**: `packages/core/src/adaptation/integration/hooks.ts`
 
-The Continuity Auditor agent checks every draft across 33 dimensions: character memory, resource continuity, hook payoff, outline adherence, narrative pacing, emotional arcs, and more. Built-in AI-tell detection automatically catches "LLM voice" — overused words, monotonous sentence patterns, excessive summarization. Failed audits trigger an automatic revision loop.
+`AdaptationHooks` is the core orchestrator of the Adaptation Layer:
 
-De-AI-ification rules are baked into the Writer agent's prompts: fatigue word lists, banned patterns, style fingerprint injection — reducing AI traces at the source. `revise --mode anti-detect` runs dedicated anti-detection rewriting on existing chapters.
+| Component | Class | Responsibility |
+|-----------|-------|----------------|
+| **EventSourcer** | `event-sourcer.ts` | Event sourcing, entity state snapshot management |
+| **IntentCompiler** | `intent-compiler.ts` | Compile bible documents to system weights |
+| **LexicalMonitor** | `lexical-monitor.ts` | Lexical monitoring, AI tell detection |
+| **RhythmGuard** | `rhythm-guard.ts` | Rhythm guard, prevent consecutive same-type beats |
+| **CascadeAuditor** | `cascade-auditor.ts` | 5-layer audit verification |
 
-### Style Cloning
+#### preGenerationBeat Flow
 
-`inkos style analyze` examines reference text and extracts a statistical fingerprint (sentence length distribution, word frequency patterns, rhythm profiles) plus an LLM-readable style guide. `inkos style import` injects this fingerprint into a book — all future chapters adopt the style, and the Reviser audits against it.
+```typescript
+async preGenerationBeat(params): Promise<PreGenerationHooksResult> {
+  // 1. Rhythm Guard — Check if forced beat type insertion is needed
+  const rhythmResult = this.rhythmGuard.guard(params.beatType);
+  const effectiveBeatType = rhythmResult.forcedType ?? params.beatType;
 
-### Creative Brief
+  // 2. Get banned words
+  const lexicalState = {
+    bannedWords: this.lexicalMonitor.getBannedWords(),
+    // ...
+  };
 
-`inkos book create --brief my-ideas.md` — pass your brainstorming notes, worldbuilding doc, or character sheets. The Architect agent builds from your brief (generating `story_bible.md` and `book_rules.md`) instead of inventing from scratch, and persists the brief into `story/author_intent.md` so the book's long-horizon intent does not disappear after initialization.
+  // 3. DNA Compression — 250 token budget
+  const dnaInput: DnaCompressorInput = {
+    snapshot: this.currentSnapshot!,
+    intentOutput: this.currentIntent!,  // IntentCompiler output
+    lexicalState,
+    beatType: effectiveBeatType,
+    tensionLevel: params.tensionLevel,
+    // ...
+  };
+  const dnaResult = new DnaCompressor().compress(dnaInput);
 
-### Input Governance Control Surface
+  // 4. API constraints calculation
+  const apiConstraints = getApiConstraintsForBeat(effectiveBeatType, wordTarget, {
+    additionalStopSequences: dnaResult.dna.mustNotInclude.slice(0, 5),
+  });
 
-Every book now has two long-lived Markdown control docs:
-
-- `story/author_intent.md`: what this book should become over the long horizon
-- `story/current_focus.md`: what the next 1-3 chapters should pull attention back toward
-
-Before writing, you can run:
-
-```bash
-inkos plan chapter my-book --context "Pull attention back to the mentor conflict first"
-inkos compose chapter my-book
-```
-
-This generates `story/runtime/chapter-XXXX.intent.md`, `context.json`, `rule-stack.yaml`, and `trace.json`. `intent.md` is the human-readable contract; the others are execution/debug artifacts. `plan` / `compose` only compile local documents and state, so they can run before you finish API key setup.
-
-### Length Governance
-
-`draft`, `write next`, and `revise` now share the same conservative length governor:
-
-- `--words` sets a target band, not an exact hard promise
-- Chinese chapters default to `zh_chars`; English chapters default to `en_words`
-- If the chapter drifts outside the soft band, InkOS may run one corrective normalization pass (compress or expand) instead of hard-cutting prose
-- If the chapter still misses the hard range after that one pass, InkOS still saves it, but surfaces a visible length warning and telemetry in the result and chapter index
-
-### Continuation Writing
-
-`inkos import chapters` imports existing novel text, auto reverse-engineers all 7 truth files (world state, character matrix, resource ledger, plot hooks, etc.), supports `Chapter N` and custom split patterns, and resumable import. After import, `inkos write next` seamlessly continues the story.
-
-### Fan Fiction
-
-`inkos fanfic init --from source.txt --mode canon` creates a fanfic book from source material. Four modes: canon (faithful continuation), au (alternate universe), ooc (out of character), cp (ship-focused). Includes a canon importer, fanfic-specific audit dimensions, and information boundary controls to keep lore consistent.
-
-### Multi-Model Routing
-
-Different agents can use different models and providers. Writer on Claude (stronger creative), Auditor on GPT-4o (cheaper and fast), Radar on a local model (zero cost). `inkos config set-model` configures per-agent; unconfigured agents fall back to the global model.
-
-### Daemon Mode + Notifications
-
-`inkos up` starts an autonomous background loop that writes chapters on a schedule. The pipeline runs fully unattended for non-critical issues, pausing for human review when needed. Notifications via Telegram and Webhook (HMAC-SHA256 signing + event filtering). Logs to `inkos.log` (JSON Lines), `-q` for quiet mode.
-
-### Local Model Compatibility
-
-Supports any OpenAI-compatible endpoint (`--provider custom`). Stream auto-fallback — when SSE isn't supported, InkOS retries with sync mode automatically. Fallback parser handles non-standard output from smaller models, and partial content recovery kicks in on stream interruption.
-
-### Reliability
-
-Every chapter creates an automatic state snapshot — `inkos write rewrite` rolls back any chapter to its pre-write state. The Writer outputs a pre-write checklist (context scope, resources, pending hooks, risks) and a post-write settlement table; the Auditor cross-validates both. File locking prevents concurrent writes. Post-write validator includes cross-chapter repetition detection and 11 hard rules with auto spot-fix.
-
-The hook system uses Zod schema validation — `lastAdvancedChapter` must be an integer, `status` can only be open/progressing/deferred/resolved. JSON deltas from the LLM are processed through `applyRuntimeStateDelta` (immutable update) and `validateRuntimeState` (structural check) before persistence. Corrupted data is rejected, not propagated.
-
-User-configured `INKOS_LLM_MAX_TOKENS` now acts as a global cap on all API calls. Reserved keys in `llm.extra` (max_tokens, temperature, etc.) are automatically stripped to prevent accidental overrides.
-
----
-
-## How It Works
-
-Each chapter is produced by multiple agents in sequence, with zero human intervention:
-
-<p align="center">
-  <img src="assets/screenshot-pipeline.png" width="800" alt="Pipeline diagram">
-</p>
-
-| Agent | Responsibility |
-|-------|---------------|
-| **Radar** | Scans platform trends and reader preferences to inform story direction (pluggable, skippable) |
-| **Planner** | Reads author intent + current focus + memory retrieval results, produces chapter intent (must-keep / must-avoid) |
-| **Composer** | Selects relevant context from all truth files by relevance, compiles rule stack and runtime artifacts |
-| **Architect** | Plans chapter structure: outline, scene beats, pacing targets |
-| **Writer** | Produces prose from the composed context (length-governed, dialogue-driven) |
-| **Observer** | Over-extracts 9 categories of facts from the chapter text (characters, locations, resources, relationships, emotions, information, hooks, time, physical state) |
-| **Reflector** | Outputs a JSON delta (not full markdown); code-layer applies Zod schema validation then immutable write |
-| **Normalizer** | Single-pass compress/expand to bring chapter length into the target band |
-| **Continuity Auditor** | Validates the draft against 7 canonical truth files, 33-dimension check |
-| **Reviser** | Fixes issues found by the auditor — auto-fixes critical problems, flags others for human review |
-
-If the audit fails, the pipeline automatically enters a revise → re-audit loop until all critical issues are resolved.
-
-### Canonical Truth Files
-
-Every book maintains 7 truth files as the single source of truth:
-
-| File | Purpose |
-|------|---------|
-| `current_state.md` | World state: character locations, relationships, knowledge, emotional arcs |
-| `particle_ledger.md` | Resource accounting: items, money, supplies with quantities and decay tracking |
-| `pending_hooks.md` | Open plot threads: foreshadowing planted, promises to readers, unresolved conflicts |
-| `chapter_summaries.md` | Per-chapter summaries: characters, key events, state changes, hook dynamics |
-| `subplot_board.md` | Subplot progress board: A/B/C line status tracking |
-| `emotional_arcs.md` | Emotional arcs: per-character emotion tracking and growth |
-| `character_matrix.md` | Character interaction matrix: encounter records, information boundaries |
-
-The Continuity Auditor checks every draft against these files. If a character "remembers" something they never witnessed, or pulls a weapon they lost two chapters ago, the auditor catches it.
-
-Since 0.6.0, the authoritative source for truth files has moved from markdown to `story/state/*.json` (Zod schema validated). The Settler no longer outputs full markdown files — it produces a JSON delta that is immutably applied and structurally validated before persistence. Markdown files are retained as human-readable projections. Existing books auto-migrate on first run.
-
-On Node 22+, a SQLite temporal memory database (`story/memory.db`) is automatically enabled, supporting relevance-based retrieval of historical facts, hooks, and chapter summaries — preventing context bloat from full-file injection.
-
-<p align="center">
-  <img src="assets/screenshot-state.png" width="800" alt="Truth files snapshot">
-</p>
-
-### Control Surface and Runtime Artifacts
-
-Alongside the 7 truth files, InkOS splits guardrails from customization into reviewable control docs:
-
-- `story/author_intent.md`: long-horizon author intent
-- `story/current_focus.md`: near-term steering
-- `story/runtime/chapter-XXXX.intent.md`: chapter goal, keep/avoid list, conflict resolution
-- `story/runtime/chapter-XXXX.context.json`: the actual context selected for this chapter
-- `story/runtime/chapter-XXXX.rule-stack.yaml`: priority layers and override relationships
-- `story/runtime/chapter-XXXX.trace.json`: compilation trace for this chapter
-
-That means briefs, outline nodes, book rules, and current requests are no longer mashed into one prompt blob; InkOS compiles them first, then writes.
-
-### Writing Rule System
-
-The Writer agent has ~25 universal writing rules (character craft, narrative technique, logical consistency, language constraints, de-AI-ification), applicable to all genres.
-
-On top of that, each genre has dedicated rules (prohibitions, language constraints, pacing, audit dimensions), and each book has its own `book_rules.md` (protagonist personality, numerical caps, custom prohibitions), `story_bible.md` (worldbuilding), `author_intent.md` (long-horizon direction), and `current_focus.md` (near-term steering). `volume_outline.md` still acts as the default plan, but in v2 input governance it no longer automatically overrides the current chapter intent.
-
-## Usage Modes
-
-InkOS provides three interaction modes, all sharing the same atomic operations:
-
-### 1. Full Pipeline (One Command)
-
-```bash
-inkos write next my-book              # Draft → audit → auto-revise, all in one
-inkos write next my-book --count 5    # Write 5 chapters in sequence
-```
-
-`write next` now uses the `plan -> compose -> write` governance chain by default. If you need the older prompt-assembly path, set this explicitly in `inkos.json`:
-
-```json
-{
-  "inputGovernanceMode": "legacy"
+  return {
+    intentOutput: this.currentIntent,
+    dna: dnaResult.dna,
+    rhythmResult,
+    bannedWords: this.lexicalMonitor.getBannedWords(),
+    apiConstraints,
+    kineticScaffold: rhythmResult.kineticScaffold,
+  };
 }
 ```
 
-The default is now `v2`. `legacy` remains available as an explicit fallback.
+---
 
-### 2. Atomic Commands (Composable, External Agent Friendly)
+### 4. BeatOrchestrator LLM Integration
 
-```bash
-inkos plan chapter my-book --context "Focus on the mentor conflict first" --json
-inkos compose chapter my-book --json
-inkos draft my-book --context "Focus on the dungeon boss encounter and party dynamics" --json
-inkos audit my-book 31 --json
-inkos revise my-book 31 --json
+**File**: `packages/core/src/adaptation/integration/beat-orchestrator.ts`
+
+#### New Interface
+
+```typescript
+// LLM Call Interface
+export interface BeatOrchestratorLLMInterface {
+  callLLMWithConfig(config: LLMCallConfig): Promise<string>;
+}
+
+// Inject LLM implementation
+setLLMInterface(llm: BeatOrchestratorLLMInterface): void;
 ```
 
-Each command performs a single operation independently. `--json` outputs structured data. `plan` / `compose` govern inputs; `draft` / `audit` / `revise` handle prose and quality checks. They can be called by external AI agents via `exec`, or used in scripts.
+#### executeSpeculativeCalls - Execute 3-way Parallel Generation
 
-### 3. Natural Language Agent Mode
+```typescript
+async executeSpeculativeCalls(
+  request: BeatGenerationRequest
+): Promise<SpeculativeCandidate[]> {
+  const configs = this.prepareSpeculativeCalls(request);
+  const results = await Promise.all(configs.map(c => this.llm.callLLMWithConfig(c)));
 
-```bash
-inkos agent "Write a LitRPG novel where the MC is a healer class in a dungeon world"
-inkos agent "Write the next chapter, focus on the boss fight and loot distribution"
-inkos agent "Create a progression fantasy about a mage who can only use one spell"
+  return configs.map((config, i) => {
+    const prose = this.applyShowDontTell(results[i]);
+    return this.createCandidateFromProse(config.variantId, prose);
+  });
+}
 ```
 
-18 built-in tools (write_draft, plan_chapter, compose_chapter, audit_chapter, revise_chapter, scan_market, create_book, update_author_intent, update_current_focus, get_book_status, read_truth_files, list_books, write_full_pipeline, web_fetch, import_style, import_canon, import_chapters, write_truth_file), with the LLM deciding call order via tool-use. The recommended agent flow is: adjust the control surface first, then `plan` / `compose`, then choose draft-only or full-pipeline writing.
+#### buildSystemPrompt - Build System Prompt
 
-## CLI Reference
+```typescript
+private buildSystemPrompt(request: BeatGenerationRequest, variant: SpeculativeVariant): string {
+  const parts: string[] = [];
 
-| Command | Description |
-|---------|-------------|
-| `inkos init [name]` | Initialize project (omit name to init current directory) |
-| `inkos book create` | Create a new book (`--genre`, `--chapter-words`, `--target-chapters`, `--brief <file>`, `--lang en/zh`) |
-| `inkos book update [id]` | Update book settings (`--chapter-words`, `--target-chapters`, `--status`, `--lang`) |
-| `inkos book list` | List all books |
-| `inkos book delete <id>` | Delete a book and all its data (`--force` to skip confirmation) |
-| `inkos genre list/show/copy/create` | View, copy, or create genres |
-| `inkos plan chapter [id]` | Generate the next chapter's `intent.md` (`--context` / `--context-file` for current steering) |
-| `inkos compose chapter [id]` | Generate the next chapter's `context.json`, `rule-stack.yaml`, and `trace.json` |
-| `inkos write next [id]` | Full pipeline: write next chapter (`--words` to override, `--count` for batch, `-q` quiet mode) |
-| `inkos write rewrite [id] <n>` | Rewrite chapter N (restores state snapshot, `--force` to skip confirmation) |
-| `inkos draft [id]` | Write draft only (`--words` to override word count, `-q` quiet mode) |
-| `inkos audit [id] [n]` | Audit a specific chapter |
-| `inkos revise [id] [n]` | Revise a specific chapter |
-| `inkos agent <instruction>` | Natural language agent mode |
-| `inkos review list [id]` | Review drafts |
-| `inkos review approve-all [id]` | Batch approve |
-| `inkos status [id]` | Project status |
-| `inkos export [id]` | Export book (`--format txt/md/epub`, `--output <path>`, `--approved-only`) |
-| `inkos fanfic init` | Create a fanfic book from source material (`--from`, `--mode canon/au/ooc/cp`) |
-| `inkos config set-global` | Set global LLM config (~/.inkos/.env) |
-| `inkos config set-model <agent> <model>` | Per-agent model override (`--base-url`, `--provider`, `--api-key-env`) |
-| `inkos config show-models` | Show current model routing |
-| `inkos doctor` | Diagnose setup issues (API connectivity test + provider compatibility hints) |
-| `inkos detect [id] [n]` | AIGC detection (`--all` for all chapters, `--stats` for statistics) |
-| `inkos style analyze <file>` | Analyze reference text to extract style fingerprint |
-| `inkos style import <file> [id]` | Import style fingerprint into a book |
-| `inkos import chapters [id] --from <path>` | Import existing chapters for continuation (`--split`, `--resume-from`) |
-| `inkos analytics [id]` / `inkos stats [id]` | Book analytics (audit pass rate, top issues, chapter ranking, token usage) |
-| `inkos studio` | Start web workbench (`-p` for port, default 4567) |
-| `inkos up / down` | Start/stop daemon (`-q` quiet mode, auto-writes `inkos.log`) |
+  if (request.kineticScaffold) {
+    parts.push(`Start with: "${request.kineticScaffold}"`);
+  }
 
-`[id]` is auto-detected when the project has only one book. All commands support `--json` for structured output. `draft` / `write next` / `plan chapter` / `compose chapter` accept `--context` for steering, and `--words` overrides the target chapter size. `book create` supports `--brief <file>` to pass a creative brief — the Architect builds from your ideas instead of generating from scratch. `plan chapter` / `compose chapter` do not require a live LLM, so you can inspect governed inputs before finishing API setup.
+  if (request.dna.motifEcho) {
+    parts.push(`[MOTIF ECHO] ${request.dna.motifEcho}`);
+  }
 
-## Roadmap
+  if (request.dna.sensoryEcho) {
+    parts.push(`[SENSORY ECHO] ${request.dna.sensoryEcho}`);
+  }
 
-- [x] ~~`packages/studio` Web UI workbench (Vite + React + Hono)~~ — shipped, run `inkos studio`
-- [ ] Interactive fiction (branching narrative + reader choices)
-- [ ] Partial chapter intervention (rewrite half a chapter + cascade truth file updates)
-- [ ] Custom agent plugin system
+  // ... other parts
+  parts.push(`Style: ${variant.suffix}`);
 
-## Contributing
-
-Contributions welcome. Open an issue or PR.
-
-Development is moving quickly. More features and writing-quality improvements will keep landing. Feedback, feature requests, and project follow-up are all welcome. The goal is to build the strongest AI novel-writing Agent.
-
-```bash
-pnpm install
-pnpm dev          # Watch mode for all packages
-pnpm test         # Run tests
-pnpm typecheck    # Type-check without emitting
+  return parts.join("\n");
+}
 ```
 
-## Star History
+| Variant | Style | Temperature |
+|---------|-------|-------------|
+| **A** | terse | 0.7 |
+| **B** | internal | 0.8 |
+| **C** | sensory | 0.75 |
 
-<a href="https://www.star-history.com/#Narcooo/inkos&type=date&legend=top-left">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=Narcooo/inkos&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=Narcooo/inkos&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=Narcooo/inkos&type=date&legend=top-left" />
- </picture>
-</a>
+---
 
-## Repobeats
+### 5. ChapterPipelineAdapter LLM Integration
 
-![Alt](https://repobeats.axiom.co/api/embed/024114415c1505a8c27fb121e3b392524e48f583.svg "Repobeats analytics image")
+**File**: `packages/core/src/adaptation/integration/chapter-pipeline.ts`
 
-## Contributors
+#### New Interface
 
-<a href="https://github.com/Narcooo/inkos/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=Narcooo/inkos" />
-</a>
+```typescript
+export interface ChapterPipelineLLMInterface {
+  callLLMWithConfig(config: LLMCallConfig): Promise<string>;
+}
+
+setLLMInterface(llm: ChapterPipelineLLMInterface): void;
+```
+
+#### generateBeat - Complete Beat Generation Flow
+
+```typescript
+async generateBeat(params: {
+  beatIndex: number;
+  beatType: BeatType;
+  tensionLevel: TensionLevel;
+  // ...
+  isChapterEnd: boolean;
+}): Promise<BeatGenerationStep> {
+  // 1. preGenerationBeat - DNA compression and API constraint preparation
+  const preGen = await this.hooks.preGenerationBeat({...});
+
+  // 2. Build request
+  const request: BeatGenerationRequest = {
+    beatId: `beat-${params.beatIndex}`,
+    beatType: params.beatType,
+    dna: preGen.dna,
+    kineticScaffold: preGen.kineticScaffold,
+    // ...
+  };
+
+  // 3. Call BeatOrchestrator to execute 3-way parallel generation
+  const candidates = await this.orchestrator.executeSpeculativeCalls(request);
+
+  // 4. Audit and select best candidate
+  const selection = this.orchestrator.selectBestCandidate(candidates, preGen.dna);
+
+  // 5. postGenerationBeat - Audit and event extraction
+  const postResult = await this.hooks.postGenerationBeat({
+    prose: selection.selectedProse!,
+    dna: preGen.dna,
+    beatType: params.beatType,
+  });
+
+  return {
+    selectedProse: selection.selectedProse,
+    candidates: selection.candidates,
+    auditResult: postResult.auditResult,
+    events: postResult.events,
+    // ...
+  };
+}
+```
+
+---
+
+### 6. Complete Data Flow
+
+```
+monarch write next (default: Adaptation mode)
+    │
+    ▼
+writeNextChapterWithAdaptationLocked
+    │
+    ├── Initialize AdaptationHooks
+    │   ├── IntentCompiler.compile() → HardBan, DnaWeight, FocusMultiplier
+    │   ├── EventSourcer.loadSnapshot() → Entity state
+    │   └── LexicalMonitor.addAiTellWords() → AI tell words
+    │
+    ├── Build LLM Interface
+    │   └── buildAdaptationLLMInterface() → Bridge to InkOS LLMProvider
+    │
+    ▼
+ChapterPipelineAdapter.generateChapter()
+    │
+    ├── planBeats() → Beat planning (position preference + rhythm guard)
+    │
+    └── generateBeat() → Each beat
+         │
+         ├─ hooks.preGenerationBeat()
+         │    └─ DnaCompressor compress state to NarrativeDNA
+         │    └─ RhythmGuard generate Kinetic Scaffold
+         │
+         └─ BeatOrchestrator.executeSpeculativeCalls()
+              │
+              ├─ 3-way parallel generation (A/B/C semantic variants)
+              │    └─ LLM call + API constraints
+              │    └─ Show-Don't-Tell Scalpel post-processing
+              │
+              ├─ hooks.postGenerationBeat()
+              │    └─ CascadeAuditor audit
+              │    └─ EventSourcer event extraction
+              │
+              └─ Select best candidate
+    │
+    ▼
+Write chapter file + Update state
+```
+
+---
+
+### 7. Current Implementation Status
+
+> [!NOTE]
+> **Integrated**:
+> - `BeatOrchestratorLLMInterface` — LLM call interface definition
+> - `setLLMInterface()` — LLM implementation injection
+> - `executeSpeculativeCalls()` — 3-way parallel LLM calls
+> - `buildSystemPrompt()` — Integrate motifEcho and sensoryEcho directives
+> - `ChapterPipelineAdapter.setLLMInterface()` — LLM interface injection
+> - `generateBeat()` — Complete beat-level generation flow
+> - `_writeNextChapterWithAdaptationLocked()` — Use ChapterPipelineAdapter instead of original InkOS pipeline
+
+## Workflow
+
+### 1. Intent Compiler
+
+Reads the author's bible document and compiles it into system weights:
+- `HardBan` — Absolute prohibited rules
+- `DnaWeight` — Weight distribution for each DNA field
+- `FocusMultiplier` — Character focus multiplier
+
+### 2. DNA Compressor
+
+Compresses the full story state into a NarrativeDNA within 250 tokens:
+- `who` — Character snapshot for the current scene
+- `where` — Location description (200 character limit)
+- `mustInclude` — Elements that must be included (max 3)
+- `mustNotInclude` — Prohibited vocabulary list
+- `motifEcho` — Motif echo directives
+- `sensoryEcho` — Sensory flashback micro-dose injection
+
+### 3. Beat Planner
+
+Plans each beat's type based on tension and emotional debt:
+- **Negative Space Trigger**: Continuous high intensity + emotional debt > 5 → Insert silent beat
+- **Dialogue Density Trigger**: 3 consecutive dialogue beats → Insert environmental description
+- Auto-inserts Kinetic Scaffold to break 4B model's initialization bias
+
+### 4. Speculative Generator
+
+Generates 3 semantic variants in parallel (terse / internal / sensory):
+- Each variant attached with 3 syntactic strategies (parataxis / hypotaxis / nominal)
+- 9 candidates total, batched in 3 parallel calls
+- Autoregressive preference: Syntax strategy that wins 2 consecutive times auto-locks
+
+### 5. Motif Indexer
+
+Maintains cross-chapter motif index:
+- Scans 40+ predefined motifs appearing in text
+- Tracks emotional vectors and associated characters for each occurrence
+- Auto-calculates arcs: REINFORCE / CONTRAST / TRANSMUTE / DORMANT
+- Sensory flashback micro-dose injection: When motif recurs, requires the model to embed a 0.5-second interference at the character's physical level
+
+### 6. Cascade Auditor
+
+Layered verification of generated text:
+1. **Rule Audit** — Check if HardBan rules are violated
+2. **Proper Noun Audit** — Check character/location name spelling consistency
+3. **Structure Audit** — Check word count target and beat type matching
+4. **Voice Audit** — Check vocabulary repetition and AI tell words
+5. **Continuity Audit** — Check plot coherence with the previous beat
+
+### 7. Post-processing (Show-Don't-Tell Scalpel)
+
+Brutally removes explicit causal expressions:
+- `以此掩饰` / `因为他感到` / `仿佛在说` / `试图以此`
+- Cleans up resulting extra punctuation (`,。` → `。`)
+
+## API Constraints
+
+Every LLM call must include:
+- `max_tokens` — Dynamically calculated based on beat type (action: 180, dialogue: 220, etc.)
+- `stop_sequences` — Prevents model from generating content beyond scope
+- `temperature` — Differentiated by variant type (A: 0.7, B: 0.8, C: 0.75)
+- `frequency_penalty` — 0.3
+- `presence_penalty` — 0.2
+
+## Chapter Truncation Fix
+
+Reserves 50 tokens of closing space for the chapter's last beat to prevent content truncation.
+
+```typescript
+const CHAPTER_END_RESERVE_TOKENS = 50;
+
+// getApiConstraintsForBeat(beatType, wordTarget, { isChapterEnd: true })
+// → maxTokens += CHAPTER_END_RESERVE_TOKENS
+```
+
+## RED LINES
+
+- **NO LLM FOR LOGIC** — All logic must be pure TypeScript
+- **MAX 3 PARALLEL CALLS** — Promise.all LLM calls must not exceed 3
+- **EVENT SOURCING ONLY** — LLM must never directly modify state files
+- **NO MODIFICATION OF BASE INKOS** — All code resides in `src/adaptation/` directory
+
+## Directory Structure
+
+```
+packages/core/src/adaptation/
+├── state/
+│   ├── event-sourcer.ts      # Event sourcing, pure TS state mutation
+│   ├── intent-compiler.ts    # Intent compilation, bible → SystemWeights
+│   ├── motif-indexer.ts      # Motif index, cross-chapter memory
+│   └── motif-types.ts        # Motif data structure definition
+├── beat/
+│   ├── beat-types.ts         # Beat, NarrativeDNA, SensoryEcho
+│   ├── planner.ts            # Beat planning, negative space triggers
+│   ├── rhythm-guard.ts       # Rhythm guard, Kinetic Scaffolds
+│   ├── speculative-generator.ts  # Speculative generation, syntactic variants
+│   └── show-dont-tell-scalpel.ts # Explicit causal word removal
+├── context/
+│   └── dna-compressor.ts     # DNA compression, 250 token budget
+├── audit/
+│   ├── lexical-monitor.ts    # Lexical monitoring, AI tell detection
+│   └── cascade-auditor.ts    # Cascade audit, 5-layer verification
+├── llm/
+│   └── api-constraints.ts    # API constraints, max_tokens calculation
+├── integration/
+│   ├── hooks.ts              # Adaptation layer hooks
+│   ├── beat-orchestrator.ts  # Beat orchestration, 3-way parallel
+│   └── chapter-pipeline.ts   # Chapter pipeline adaptation
+└── types/
+    └── state-types.ts        # Core state type definitions
+```
+
+## Relationship with InkOS
+
+Monarch is built on top of InkOS, inheriting InkOS's core pipeline and workflow. The main differences are:
+
+| Feature | InkOS | Monarch |
+|---------|-------|---------|
+| Purpose | General-purpose novel writing Agent | Small-model writing Agent, focused on complex logic |
+| Architecture | Multi-Agent collaboration | Adaptation Layer + InkOS Pipeline |
+| LLM Usage | Handles logic and writing | Only generates text, logic handled by TypeScript |
+
+### Environment Configuration
+
+Monarch uses the same environment configuration method as InkOS. No additional setup is required. Please refer to the [InkOS Configuration Guide](https://github.com/Narcooo/inkos#configure).
+
+### More Features
+
+InkOS provides rich features including but not limited to:
+- Multiple interaction modes (TUI / Studio / CLI)
+- Continuation of existing works
+- Fan fiction creation
+- Style cloning
+- Multi-model routing
+- Daemon mode
+
+For detailed information and usage of these features, please visit the [InkOS official repository](https://github.com/Narcooo/inkos).
 
 ## License
 

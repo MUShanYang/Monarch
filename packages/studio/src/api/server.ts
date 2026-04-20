@@ -40,7 +40,7 @@ import {
   type ProjectConfig,
   type LogSink,
   type LogEntry,
-} from "@actalk/inkos-core";
+} from "@actalk/monarch-core";
 import { access, readFile, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { isSafeBookId } from "./safety.js";
@@ -642,7 +642,7 @@ export function createStudioServer(initialConfig: ProjectConfig, root: string) {
   // --- Genres ---
 
   app.get("/api/v1/genres", async (c) => {
-    const { listAvailableGenres, readGenreProfile } = await import("@actalk/inkos-core");
+    const { listAvailableGenres, readGenreProfile } = await import("@actalk/monarch-core");
     const rawGenres = await listAvailableGenres(root);
     const genres = await Promise.all(
       rawGenres.map(async (g) => {
@@ -1179,7 +1179,7 @@ export function createStudioServer(initialConfig: ProjectConfig, root: string) {
 
   // --- Daemon control ---
 
-  let schedulerInstance: import("@actalk/inkos-core").Scheduler | null = null;
+  let schedulerInstance: import("@actalk/monarch-core").Scheduler | null = null;
 
   app.get("/api/v1/daemon", (c) => {
     return c.json({
@@ -1192,7 +1192,7 @@ export function createStudioServer(initialConfig: ProjectConfig, root: string) {
       return c.json({ error: "Daemon already running" }, 400);
     }
     try {
-      const { Scheduler } = await import("@actalk/inkos-core");
+      const { Scheduler } = await import("@actalk/monarch-core");
       const currentConfig = await loadCurrentProjectConfig();
       const scheduler = new Scheduler({
         ...(await buildPipelineConfig()),
@@ -1718,7 +1718,7 @@ export function createStudioServer(initialConfig: ProjectConfig, root: string) {
 
       const content = await readFile(join(chaptersDir, match), "utf-8");
       const currentConfig = await loadCurrentProjectConfig();
-      const { ContinuityAuditor } = await import("@actalk/inkos-core");
+      const { ContinuityAuditor } = await import("@actalk/monarch-core");
       const auditor = new ContinuityAuditor({
         client: createLLMClient(currentConfig.llm),
         model: currentConfig.llm.model,
@@ -1836,7 +1836,7 @@ export function createStudioServer(initialConfig: ProjectConfig, root: string) {
   app.get("/api/v1/genres/:id", async (c) => {
     const genreId = c.req.param("id");
     try {
-      const { readGenreProfile } = await import("@actalk/inkos-core");
+      const { readGenreProfile } = await import("@actalk/monarch-core");
       const { profile, body } = await readGenreProfile(root, genreId);
       return c.json({ profile, body });
     } catch (e) {
@@ -1850,7 +1850,7 @@ export function createStudioServer(initialConfig: ProjectConfig, root: string) {
       throw new ApiError(400, "INVALID_GENRE_ID", `Invalid genre ID: "${genreId}"`);
     }
     try {
-      const { getBuiltinGenresDir } = await import("@actalk/inkos-core");
+      const { getBuiltinGenresDir } = await import("@actalk/monarch-core");
       const { mkdir: mkdirFs, copyFile } = await import("node:fs/promises");
       const builtinDir = getBuiltinGenresDir();
       const projectGenresDir = join(root, "genres");
@@ -1911,7 +1911,7 @@ export function createStudioServer(initialConfig: ProjectConfig, root: string) {
       if (!match) return c.json({ error: "Chapter not found" }, 404);
 
       const content = await readFile(join(chaptersDir, match), "utf-8");
-      const { analyzeAITells } = await import("@actalk/inkos-core");
+      const { analyzeAITells } = await import("@actalk/monarch-core");
       const result = analyzeAITells(content);
       return c.json({ chapterNumber: chapterNum, ...result });
     } catch (e) {
@@ -2036,7 +2036,7 @@ export function createStudioServer(initialConfig: ProjectConfig, root: string) {
       const chaptersDir = join(bookDir, "chapters");
       const files = await readdir(chaptersDir);
       const mdFiles = files.filter((f) => f.endsWith(".md") && /^\d{4}/.test(f)).sort();
-      const { analyzeAITells } = await import("@actalk/inkos-core");
+      const { analyzeAITells } = await import("@actalk/monarch-core");
 
       const results = await Promise.all(
         mdFiles.map(async (f) => {
@@ -2057,7 +2057,7 @@ export function createStudioServer(initialConfig: ProjectConfig, root: string) {
   app.get("/api/v1/books/:id/detect/stats", async (c) => {
     const id = c.req.param("id");
     try {
-      const { loadDetectionHistory, analyzeDetectionInsights } = await import("@actalk/inkos-core");
+      const { loadDetectionHistory, analyzeDetectionInsights } = await import("@actalk/monarch-core");
       const bookDir = state.bookDir(id);
       const history = await loadDetectionHistory(bookDir);
       const insights = analyzeDetectionInsights(history);
@@ -2172,7 +2172,7 @@ export function createStudioServer(initialConfig: ProjectConfig, root: string) {
     if (!text?.trim()) return c.json({ error: "text is required" }, 400);
 
     try {
-      const { analyzeStyle } = await import("@actalk/inkos-core");
+      const { analyzeStyle } = await import("@actalk/monarch-core");
       const profile = analyzeStyle(text, sourceName ?? "unknown");
       return c.json(profile);
     } catch (e) {
@@ -2207,7 +2207,7 @@ export function createStudioServer(initialConfig: ProjectConfig, root: string) {
 
     broadcast("import:start", { bookId: id, type: "chapters" });
     try {
-      const { splitChapters } = await import("@actalk/inkos-core");
+      const { splitChapters } = await import("@actalk/monarch-core");
       const chapters = [...splitChapters(text, splitRegex)];
 
       const pipeline = new PipelineRunner(await buildPipelineConfig());
@@ -2332,7 +2332,7 @@ export function createStudioServer(initialConfig: ProjectConfig, root: string) {
 
   app.get("/api/v1/doctor", async (c) => {
     const { existsSync } = await import("node:fs");
-    const { GLOBAL_ENV_PATH } = await import("@actalk/inkos-core");
+    const { GLOBAL_ENV_PATH } = await import("@actalk/monarch-core");
 
     const checks = {
       inkosJson: existsSync(join(root, "inkos.json")),
@@ -2419,6 +2419,6 @@ export async function startStudioServer(
     }
   }
 
-  console.log(`InkOS Studio running on http://localhost:${port}`);
+  console.log(`Monarch Studio running on http://localhost:${port}`);
   serve({ fetch: app.fetch, port });
 }

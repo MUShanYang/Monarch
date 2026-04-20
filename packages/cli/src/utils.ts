@@ -1,6 +1,6 @@
 import { readFile, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { createLLMClient, StateManager, createLogger, createStderrSink, createJsonLineSink, loadProjectConfig, GLOBAL_CONFIG_DIR, GLOBAL_ENV_PATH, type ProjectConfig, type PipelineConfig, type LogSink } from "@actalk/inkos-core";
+import { createLLMClient, StateManager, createLogger, createStderrSink, createJsonLineSink, loadProjectConfig, GLOBAL_CONFIG_DIR, GLOBAL_ENV_PATH, type ProjectConfig, type PipelineConfig, type LogSink } from "@actalk/monarch-core";
 import { formatSqliteMemorySupportWarning } from "./runtime-requirements.js";
 
 export { GLOBAL_CONFIG_DIR, GLOBAL_ENV_PATH };
@@ -64,7 +64,7 @@ export function buildPipelineConfig(
   }
 
   const hasLogging = sinks.length > 0;
-  const logger = hasLogging ? createLogger({ tag: "inkos", sinks }) : undefined;
+  const logger = hasLogging ? createLogger({ tag: "monarch", sinks }) : undefined;
 
   const onStreamProgress = hasLogging
     ? (progress: { readonly elapsedMs: number; readonly totalChars: number; readonly chineseChars: number; readonly status: string }) => {
@@ -122,7 +122,7 @@ export async function resolveBookId(
 
   if (books.length === 0) {
     throw new Error(
-      "No books found. Create one first:\n  inkos book create --title '...' --genre xuanhuan",
+      "No books found. Create one first:\n  monarch book create --title '...' --genre xuanhuan",
     );
   }
   if (books.length === 1) {

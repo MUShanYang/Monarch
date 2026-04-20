@@ -101,7 +101,7 @@ configCommand
       await mkdir(GLOBAL_CONFIG_DIR, { recursive: true });
 
       const lines = [
-        "# InkOS Global LLM Configuration",
+        "# Monarch Global LLM Configuration",
         `INKOS_LLM_PROVIDER=${opts.provider}`,
         `INKOS_LLM_BASE_URL=${opts.baseUrl}`,
         `INKOS_LLM_API_KEY=${opts.apiKey}`,
@@ -134,7 +134,7 @@ configCommand
       );
       log(masked);
     } catch {
-      log("No global config found. Run 'inkos config set-global' to create one.");
+      log("No global config found. Run 'monarch config set-global' to create one.");
     }
   });
 

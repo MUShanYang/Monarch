@@ -4,7 +4,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { StateManager } from "@actalk/inkos-core";
+import { StateManager } from "@actalk/monarch-core";
 
 const testDir = dirname(fileURLToPath(import.meta.url));
 const cliDir = resolve(testDir, "..", "..");
@@ -77,10 +77,10 @@ describe("CLI integration", () => {
     });
   });
 
-  describe("inkos --help", () => {
+  describe("monarch --help", () => {
     it("prints help with command list", () => {
       const output = run(["--help"]);
-      expect(output).toContain("inkos");
+      expect(output).toContain("monarch");
       expect(output).toContain("init");
       expect(output).toContain("book");
       expect(output).toContain("write");
@@ -159,7 +159,7 @@ describe("CLI integration", () => {
       try {
         const output = run(["init", englishDir, "--lang", "en"]);
         expect(output).toContain("Project initialized");
-        expect(output).toContain("inkos book create --title 'My Novel'");
+        expect(output).toContain("monarch book create --title 'My Novel'");
         expect(output).not.toContain("我的小说");
       } finally {
         await rm(englishDir, { recursive: true, force: true });
@@ -535,10 +535,10 @@ describe("CLI integration", () => {
     });
   });
 
-  describe("inkos doctor", () => {
+  describe("monarch doctor", () => {
     it("checks environment health", () => {
       const { stdout } = runStderr(["doctor"]);
-      expect(stdout).toContain("InkOS Doctor");
+      expect(stdout).toContain("Monarch Doctor");
       expect(stdout).toContain("Node.js >= 20");
       expect(stdout).toContain("SQLite memory index");
       expect(stdout).toContain("inkos.json");

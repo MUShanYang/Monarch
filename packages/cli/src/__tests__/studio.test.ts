@@ -59,7 +59,7 @@ describe("studio command", () => {
       "/project",
       "node_modules",
       "@actalk",
-      "inkos-studio",
+      "monarch-studio",
       "dist",
       "api",
       "index.js",

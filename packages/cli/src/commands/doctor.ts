@@ -129,7 +129,7 @@ export const doctorCommand = new Command("doctor")
       await readFile(join(root, "inkos.json"), "utf-8");
       checks.push({ name: "inkos.json", ok: true, detail: "Found" });
     } catch {
-      checks.push({ name: "inkos.json", ok: false, detail: "Not found. Run 'inkos init'" });
+      checks.push({ name: "inkos.json", ok: false, detail: "Not found. Run 'monarch init'" });
     }
 
     // 3. Check .env exists
@@ -150,7 +150,7 @@ export const doctorCommand = new Command("doctor")
       checks.push({
         name: "Global Config",
         ok: hasGlobal,
-        detail: hasGlobal ? `Found (${GLOBAL_ENV_PATH})` : "Not set. Run 'inkos config set-global'",
+        detail: hasGlobal ? `Found (${GLOBAL_ENV_PATH})` : "Not set. Run 'monarch config set-global'",
       });
     }
 
@@ -160,7 +160,7 @@ export const doctorCommand = new Command("doctor")
       const { config: loadDotenv } = await import("dotenv");
       loadDotenv({ path: GLOBAL_ENV_PATH });
       loadDotenv({ path: join(root, ".env"), override: true });
-      const { isApiKeyOptionalForEndpoint } = await import("@actalk/inkos-core");
+      const { isApiKeyOptionalForEndpoint } = await import("@actalk/monarch-core");
       let provider = process.env.INKOS_LLM_PROVIDER;
       let baseUrl = process.env.INKOS_LLM_BASE_URL;
       try {
@@ -180,13 +180,13 @@ export const doctorCommand = new Command("doctor")
           ? "Optional for local/self-hosted endpoint"
           : hasKey
             ? "Configured"
-            : "Missing — run 'inkos config set-global' or add to project .env",
+            : "Missing — run 'monarch config set-global' or add to project .env",
       });
     }
 
     // 5. Check books directory
     try {
-      const { StateManager } = await import("@actalk/inkos-core");
+      const { StateManager } = await import("@actalk/monarch-core");
       const state = new StateManager(root);
       const books = await state.listBooks();
       checks.push({
@@ -203,7 +203,7 @@ export const doctorCommand = new Command("doctor")
       const { existsSync } = await import("node:fs");
       const hasStructuredState = existsSync(join(root, "books"));
       if (hasStructuredState) {
-        const { StateManager } = await import("@actalk/inkos-core");
+        const { StateManager } = await import("@actalk/monarch-core");
         const sm = new StateManager(root);
         const bookIds = await sm.listBooks();
         let legacyCount = 0;
@@ -216,7 +216,7 @@ export const doctorCommand = new Command("doctor")
           checks.push({
             name: "Version Migration",
             ok: false,
-            detail: `${legacyCount} book(s) using legacy format (pre-v0.6). Run 'inkos write next' on each to auto-migrate, or re-init with 'inkos init'.`,
+            detail: `${legacyCount} book(s) using legacy format (pre-v0.6). Run 'monarch write next' on each to auto-migrate, or re-init with 'monarch init'.`,
           });
         } else if (bookIds.length > 0) {
           checks.push({
@@ -230,7 +230,7 @@ export const doctorCommand = new Command("doctor")
 
     // 6. API connectivity test
     try {
-      const { createLLMClient, chatCompletion, LLMConfigSchema, isApiKeyOptionalForEndpoint, resolveServiceModelsBaseUrl } = await import("@actalk/inkos-core");
+      const { createLLMClient, chatCompletion, LLMConfigSchema, isApiKeyOptionalForEndpoint, resolveServiceModelsBaseUrl } = await import("@actalk/monarch-core");
       const { loadConfig } = await import("../utils.js");
 
       let llmConfig;
@@ -357,7 +357,7 @@ export const doctorCommand = new Command("doctor")
     }
 
     // Output
-    log("\nInkOS Doctor\n");
+    log("\nMonarch Doctor\n");
     for (const check of checks) {
       const icon = check.ok ? "[OK]" : "[!!]";
       log(`  ${icon} ${check.name}: ${check.detail}`);

@@ -97,12 +97,12 @@ export async function resolveStudioLaunch(root: string): Promise<StudioLaunchSpe
   }
 
   const builtEntry = await firstAccessiblePath([
-    join(root, "node_modules", "@actalk", "inkos-studio", "dist", "api", "index.js"),
-    join(root, "node_modules", "@actalk", "inkos-studio", "server.cjs"),
-    join(cliPackageRoot, "node_modules", "@actalk", "inkos-studio", "dist", "api", "index.js"),
-    join(cliPackageRoot, "node_modules", "@actalk", "inkos-studio", "server.cjs"),
-    join(cliPackageRoot, "..", "inkos-studio", "dist", "api", "index.js"),
-    join(cliPackageRoot, "..", "inkos-studio", "server.cjs"),
+    join(root, "node_modules", "@actalk", "monarch-studio", "dist", "api", "index.js"),
+    join(root, "node_modules", "@actalk", "monarch-studio", "server.cjs"),
+    join(cliPackageRoot, "node_modules", "@actalk", "monarch-studio", "dist", "api", "index.js"),
+    join(cliPackageRoot, "node_modules", "@actalk", "monarch-studio", "server.cjs"),
+    join(cliPackageRoot, "..", "monarch-studio", "dist", "api", "index.js"),
+    join(cliPackageRoot, "..", "monarch-studio", "server.cjs"),
   ]);
   if (builtEntry) {
     return {
@@ -124,14 +124,14 @@ export async function launchStudioWorkbench(root: string, port: string): Promise
 
   if (!launch) {
     logError(
-      "InkOS Studio not found. If you cloned the repo, run:\n" +
-      "  cd packages/studio && pnpm install && pnpm build\n" +
-      "Then run 'inkos studio' from the project root.",
+      "Monarch Studio not found. If you cloned the repo, run:\n" +
+      "  pnpm install && pnpm build\n" +
+      "Then run 'monarch studio' from the project root.",
     );
     process.exit(1);
   }
 
-  log(`Starting InkOS Studio on ${url}`);
+  log(`Starting Monarch Studio on ${url}`);
 
   const child = spawn(launch.command, launch.args, {
     cwd: root,
@@ -182,7 +182,7 @@ export async function launchStudioEntry(
 
 export function createStudioCommand(hooks: StudioCommandHooks = {}): Command {
   return new Command("studio")
-  .description("Start InkOS Studio web workbench")
+  .description("Start Monarch Studio web workbench")
   .option("-p, --port <port>", "Server port", "4567")
   .action(async (opts) => {
     const root = findProjectRoot();
