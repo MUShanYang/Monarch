@@ -90,6 +90,7 @@ export class DnaCompressor {
       spatialConstraints,
       motifEcho,
       sensoryEcho,
+      styleGuide: input.intentOutput.styleGuide,
     };
 
     let tokenCount = this.calculateTokenCount(dna);

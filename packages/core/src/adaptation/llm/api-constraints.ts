@@ -39,6 +39,7 @@ const BEAT_TYPE_TOKEN_LIMITS: Record<BeatType, number> = {
   revelation: 200,
   tension: 170,
   resolution: 210,
+  "negative-space": 100,
 };
 
 const AUDIT_TOKEN_LIMIT = 50;

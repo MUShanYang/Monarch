@@ -35,6 +35,12 @@ A 4B-parameter small model lacks sufficient capacity to handle complex logical r
 
 ## Architecture Overview
 
+### Complete Adaptation Pipeline Architecture
+
+<p align="center">
+  <img src="assets/monarch v2.svg" width="100%" alt="Monarch Architecture">
+</p>
+
 ```
 ┌─────────────────────────────────────────────────────────┐
 │                    Monarch CLI                          │
@@ -444,6 +450,10 @@ const CHAPTER_END_RESERVE_TOKENS = 50;
 
 ```
 packages/core/src/adaptation/
+├── pipeline/
+│   ├── adaptation-orchestrator.ts  # Main orchestrator, connects all modules
+│   ├── index.ts                    # Pipeline exports
+│   └── FLOW.md                     # Complete flow documentation
 ├── state/
 │   ├── event-sourcer.ts      # Event sourcing, pure TS state mutation
 │   ├── intent-compiler.ts    # Intent compilation, bible → SystemWeights
@@ -459,15 +469,30 @@ packages/core/src/adaptation/
 │   └── dna-compressor.ts     # DNA compression, 250 token budget
 ├── audit/
 │   ├── lexical-monitor.ts    # Lexical monitoring, AI tell detection
-│   └── cascade-auditor.ts    # Cascade audit, 5-layer verification
+│   ├── cascade-auditor.ts    # Cascade audit, 5-layer verification
+│   └── index.ts              # Audit module exports
+├── generation/
+│   └── adversarial-refiner.ts  # Adversarial refinement loop (Attacker/Referee/Writer)
+├── simulation/
+│   └── reader-simulator.ts   # Three-reader simulator
+├── character/
+│   └── knowledge-boundary.ts # Character knowledge boundary check
+├── narrative/
+│   ├── drift-detector.ts     # Narrative drift detector
+│   ├── curiosity-ledger.ts   # Curiosity ledger
+│   └── metabolism.ts         # Narrative metabolism
+├── scene/
+│   └── exit-conditions.ts    # Scene exit conditions
 ├── llm/
 │   └── api-constraints.ts    # API constraints, max_tokens calculation
 ├── integration/
 │   ├── hooks.ts              # Adaptation layer hooks
 │   ├── beat-orchestrator.ts  # Beat orchestration, 3-way parallel
-│   └── chapter-pipeline.ts   # Chapter pipeline adaptation
-└── types/
-    └── state-types.ts        # Core state type definitions
+│   ├── chapter-pipeline.ts   # Chapter pipeline adaptation
+│   └── index.ts              # Integration module exports
+├── types/
+│   └── state-types.ts        # Core state type definitions
+└── index.ts                  # Main exports
 ```
 
 ## Relationship with InkOS

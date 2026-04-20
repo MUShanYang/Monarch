@@ -203,6 +203,26 @@ export class BeatOrchestrator {
       parts.push(`你必须以以下开头开始写作："${request.kineticScaffold}"`);
     }
 
+    // 角色名字要求
+    if (request.dna?.who && request.dna.who.length > 0) {
+      const characterNames = request.dna.who.map((c: { name: string }) => c.name).join("、");
+      parts.push(`使用角色的完整名字，不要用"你"、"我"、"他"、"她"等代词。`);
+      parts.push(`主要角色：${characterNames}`);
+    }
+
+    // 剧情参与要求
+    if (request.dna?.hookContext && request.dna.hookContext.length > 0) {
+      parts.push(`参考以下剧情线索：${request.dna.hookContext.slice(0, 3).join("；")}`);
+    }
+    if (request.dna?.mustInclude && request.dna.mustInclude.length > 0) {
+      parts.push(`必须包含以下元素：${request.dna.mustInclude.join("；")}`);
+    }
+
+    // 风格要求 - 从 DNA 中读取，而不是硬编码
+    if (request.dna?.styleGuide) {
+      parts.push(`风格要求：${request.dna.styleGuide}`);
+    }
+
     parts.push(`只写这个节拍的小说正文。不要包含任何元评论、解释、标题或标记。`);
     parts.push(`用适合该类型和情境的文学风格写作。`);
     parts.push(`不要使用"首先"、"其次"、"最后"等过渡词。不要解释角色的心理动机，用行动和对话展现。`);

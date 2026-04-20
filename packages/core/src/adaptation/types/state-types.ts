@@ -275,6 +275,43 @@ export const StateEventSchema = z.discriminatedUnion("action", [
     status: z.enum(["dormant", "active", "resolved", "abandoned"]).optional(),
     notes: z.string().optional(),
   }),
+  z.object({
+    action: z.literal("MOVE_CHARACTER"),
+    target: z.string().min(1),
+    toLocation: z.string().min(1),
+  }),
+  z.object({
+    action: z.literal("ACQUIRE_PARTICLE"),
+    target: z.string().min(1),
+    item: z.string().min(1),
+    amount: z.number().int().min(1),
+  }),
+  z.object({
+    action: z.literal("UPDATE_PHYSICAL"),
+    target: z.string().min(1),
+    field: z.enum(["posture", "locationAnchor", "handsLeft", "handsRight", "facing"]),
+    value: z.string().min(1),
+  }),
+  z.object({
+    action: z.literal("MOTIF_REFERENCE"),
+    motif: z.string().min(1),
+    chapter: z.number().int().min(1),
+    beatId: z.string().min(1),
+    emotionalVector: z.object({
+      primary: z.string().min(1),
+      valence: z.number().min(-1).max(1),
+    }),
+    associatedCharacter: z.string().optional(),
+  }),
+  z.object({
+    action: z.literal("KNOWLEDGE_GAIN"),
+    character: z.string().min(1),
+    fact: z.string().min(1),
+  }),
+  z.object({
+    action: z.literal("CLOSE_HOOK"),
+    id: z.string().min(1),
+  }),
 ]);
 export type StateEvent = z.infer<typeof StateEventSchema>;
 

@@ -1,661 +1,1126 @@
-
-
-
-这份结合了我们所有深度讨论的**最终完整版 `CLAUDE.md`** 已经准备就绪。
-
-这份文档不仅保留了“3并发限制”、“Beat流式生成”等核心机制，更将**“V2输入治理”、“事件溯源状态机”、“专有名词防火墙”以及“首句动能脚手架”**等进阶硬核方案完全融入了架构中。它是专为 4B 级别模型压榨极限性能而生的最高工程纲领。
-
-你可以直接复制并覆盖现有的 `CLAUDE.md`。
-
----
-
-# CLAUDE.md — inkos × Small Model Adaptation Layer
+# CLAUDE.md — inkos × Small Model Adaptation Layer v2
 # Language: English
 # Target: 4B parameter models | Hardware: MAX 3 parallel LLM calls
 # Base project: fork of Narcooo/inkos
+# Revision: incorporates external architecture review + S-tier patches
+
+---
+
+## DECISIONS ON EXTERNAL SUGGESTIONS
+
+All five suggestion documents have been reviewed. Acceptance summary:
+
+ACCEPTED FULLY:
+  Engine/presentation separation (JSON ledgers replace .md truth files)
+  Event sourcing — state updates via append-only patch objects
+  State diff + rollback (state-diff.json per chapter)
+  Attention multipliers replacing current_focus.md free text
+  Motif Memory Index (motif_index.json + motif-indexer.ts)
+  Negative space beat type with hard trigger conditions
+  Syntactic variants added to speculative generator (3×3, 3 batches)
+  Show-don't-tell scalpel post-processor (pure code, pre-audit)
+  Physical state machine (PhysicalState per character)
+  Kinetic scaffolds / sentence pre-fill
+  Proper noun firewall (Layer 1.5, pure regex, 0ms)
+  Dynamic banned word list (lexical fatigue prevention)
+  Stop sequences + max_tokens enforced at API layer
+  Constrained decoding for audit outputs (logit_bias / grammar)
+  Graceful degradation protocol (reduce DNA complexity before human gate)
+  Sensory echo field in NarrativeDNA
+  Negative space threshold lowered to magnitude > 5
+  Max_tokens fix with 50-token tail reserve
+
+ACCEPTED WITH MODIFICATION:
+  Knowledge breach detection: use stemming + word-root matching as primary
+  (no new model infrastructure required); embedding model (all-MiniLM-L6-v2)
+  is listed as an optional Phase 4 enhancement only
+  9-candidate speculative (3×3): accepted but must run as 3 serial batches
+  of 3 parallel calls — never 9 concurrent. 3-parallel rule is absolute.
+
+REJECTED: nothing in the review documents was rejected.
+
+---
 
 ## 0. The One Principle
 
 > A 4B model asked to do one small thing reliably is more powerful than
 > a 4B model asked to do one large thing intelligently.
 
-Every architecture decision answers: "Can this model succeed at THIS
-subtask without needing to be smart about anything else?"
-If it requires the model to figure something out — move that into the system.
-
-The 3-parallel constraint is not a limitation. It is a design constraint
-that gives the system structural coherence: 3 timeline branches, 3 beat
-candidates, 3 reader personas, 3 adversarial roles per round.
+The 3-parallel constraint is load-bearing. Every concurrent operation
+uses exactly 3 workers. If more are needed, serialize into batches of 3.
 
 ---
 
-## 1. Repository Layout (System Code vs. Story State)
+## 1. Repository Layout
 
-```text
+```
 inkos/
-├── story/                              ← World State & Governance
-│   ├── bibles/                         ← Human-authored macro constraints
-│   │   ├── author_intent.md            ← Long-term direction
-│   │   ├── current_focus.md            ← Short-term attention (1-3 chapters)
-│   │   ├── book_rules.md               ← Hard bans, stat caps, custom logic
-│   │   └── story_bible.md              ← Lore & world-building
-│   ├── db/                             ← Ground Truth (JSON - NEVER modified by LLM directly)
-│   │   ├── entities_db.json            ← Characters, emotional debts, items, locations
-│   │   ├── narrative_ledger.json       ← Open hooks, subplots, character knowledge matrix
-│   │   └── chronicles.json             ← Chapter summaries & event logs
-│   └── runtime/                        ← Reproducibility & Rollbacks
-│       └── chapter-XXXX/
-│           ├── intent.md               
-│           ├── context.json            ← Actual injected DNA for this chapter
-│           ├── rule-stack.yaml         ← Compiled runtime constraints
-│           └── state-diff.json         ← State patches applied (0-cost undo capability)
-├── src/
-│   ├── adaptation/
-│   │   ├── index.ts                    ← all inkos hooks here
-│   │   ├── state/
-│   │   │   ├── intent-compiler.ts      ← bibles → system weights/rules
-│   │   │   └── event-sourcer.ts        ← LLM delta output → db/ mutations
-│   │   ├── beat/
-│   │   │   ├── pipeline.ts
-│   │   │   ├── planner.ts              ← tension scheduler (influenced by current_focus)
-│   │   │   └── rhythm-guard.ts         ← anti-fatigue & kinetic scaffolds
-...
+├── story/
+│   ├── db/
+│   │   ├── entities_db.json        ← replaces current_state + particle_ledger + emotional_arcs
+│   │   ├── narrative_ledger.json   ← replaces pending_hooks + subplot_board + character_matrix
+│   │   ├── chronicles.json         ← replaces chapter_summaries
+│   │   └── motif_index.json        ← NEW: cross-chapter motif memory
+│   ├── runtime/
+│   │   ├── chapter-NNNN.intent.md
+│   │   ├── chapter-NNNN.context.json
+│   │   ├── chapter-NNNN.rule-stack.yaml
+│   │   ├── chapter-NNNN.trace.json
+│   │   └── chapter-NNNN.state-diff.json  ← NEW: per-chapter undo log
+│   └── compiled/
+│       └── *.md                    ← READ-ONLY for humans. Generated by system, never parsed back.
+└── src/
+    └── adaptation/
+        ├── index.ts
+        ├── state/
+        │   ├── event-sourcer.ts     ← appends patch events, writes to JSON ledgers
+        │   ├── motif-indexer.ts     ← scans beats, updates motif_index.json
+        │   ├── state-compiler.ts    ← compiles JSON ledgers → readable .md files
+        │   └── rollback.ts          ← applies inverse of state-diff.json
+        ├── beat/
+        │   ├── pipeline.ts
+        │   ├── planner.ts
+        │   ├── prompt-builder.ts
+        │   ├── rhythm-guard.ts
+        │   ├── kinetic-scaffold.ts  ← NEW: sentence pre-fill
+        │   └── show-dont-tell-scalpel.ts  ← NEW: post-processor
+        ├── context/
+        │   ├── dna-compiler.ts      ← reads from JSON ledgers, applies attention weights
+        │   ├── voice-fingerprint.ts
+        │   └── physical-state.ts    ← NEW: PhysicalState per character
+        ├── audit/
+        │   ├── cascade-auditor.ts
+        │   └── proper-noun-firewall.ts  ← NEW: Layer 1.5
+        ├── generation/
+        │   ├── speculative.ts       ← updated: 3×3 in 3 batches
+        │   ├── subtext-engine.ts
+        │   └── adversarial.ts
+        ├── character/
+        │   ├── emotional-debt.ts
+        │   ├── unconscious.ts
+        │   └── character-graph.ts
+        ├── narrative/
+        │   ├── timeline-explorer.ts
+        │   ├── curiosity-ledger.ts
+        │   ├── drift-detector.ts
+        │   ├── metabolism.ts
+        │   └── scene-exit.ts
+        ├── simulation/
+        │   ├── reader-simulator.ts
+        │   └── dialogue-arena.ts
+        └── types.ts
 ```
-Never modify existing inkos source files. Hook via `adaptation/index.ts` only.
 
 ---
 
-## 2. State Management: Event Sourcing & 0-Cost Rollback
-
-A 4B model cannot read or safely update a 2,000-word markdown file.
-**Rule:** The model NEVER mutates state directly. The model outputs precise events.
-
-```typescript
-// The model is constrained via JSON Schema to output only valid events at chapter/beat end:
-type StateEvent = 
-  | { action: 'UPDATE_EMOTION', target: string, emotion: string, delta: number }
-  | { action: 'CONSUME_PARTICLE', target: string, amount: number }
-  | { action: 'OPEN_HOOK', id: string, description: string }
-
-// Pure code applies these events to db/ JSONs and saves the delta to runtime/state-diff.json.
-// If the author rejects chapter 15, system simply reverts state-diffs from 15 → DB rolls back instantly.
-// Human-readable .md files are compiled FROM the DB for UI viewing, not the other way around.
-```
-
----
-
-## 3. V2 Input Governance (Macro-Control Layer)
-
-Macro-files (like `author_intent.md`) never enter the LLM's context window verbatim. They are compiled into **System Constraints and Weights**.
-
-*   **`current_focus.md` vs `volume_outline.md`**: Handled by the Beat Planner (TS rules). If focus requires "slow pacing", Planner overrides outline and injects interiority/dialogue beats.
-*   **`author_intent.md`**: Compiles to scoring weights in Timeline Explorer (e.g., if intent is "isolation", branches where relationships decay score +5).
-*   **`book_rules.md` / Genre Rules**: Compiles directly into Prompt strict bans (Hard gates) and Auditor custom dimensions.
-
----
-
-## 4. The 3-Parallel Rule
+## 2. The 3-Parallel Rule
 
 ```typescript
 async function parallel3<T>(
-  tasks:[() => Promise<T>, () => Promise<T>, () => Promise<T>]
+  tasks: [() => Promise<T>, () => Promise<T>, () => Promise<T>]
 ): Promise<[T, T, T]> {
   return Promise.all(tasks.map(t => t())) as Promise<[T, T, T]>
 }
 ```
-If a component needs more than 3 concurrent calls: serialize into batches of 3. This constraint is load-bearing throughout the architecture.
+
+Never exceed 3 concurrent LLM calls. Serialize into batches of 3 if needed.
 
 ---
 
-## 5. Beat-Level Generation (Target: 60–150 words)
+## 3. Data Architecture — JSON Ledgers Replace .md Truth Files
 
-Beat Sequencer plans the full chapter before generating any prose. Planning uses rules, not LLM.
+### 3.1 The Core Problem with .md Truth Files
+
+inkos's 7 .md files were designed for human readability.
+For a 4B adaptation layer they are wrong for three reasons:
+  - Parsing .md with regex is fragile and slow
+  - DNA assembly requires millisecond-precise structured queries
+  - The 7 files have severe information overlap (one conflict event
+    touches current_state, emotional_arcs, character_matrix,
+    chapter_summaries simultaneously)
+
+### 3.2 Three JSON Ledgers
+
+```typescript
+// story/db/entities_db.json
+// Replaces: current_state.md + particle_ledger.md + emotional_arcs.md
+interface EntitiesDB {
+  characters: Record<string, {
+    aliases: string[]
+    currentLocation: string
+    physicalState: PhysicalState       // see section 9
+    emotionalState: Record<string, number>  // e.g. { grief: 0.7, paranoia: 0.3 }
+    emotionalDebts: EmotionalDebt[]
+    particles: Record<string, number>  // items held: { medkit: 1, revolver: 1 }
+    knowledge: string[]
+    suspects: string[]
+  }>
+  locations: Record<string, {
+    currentOccupants: string[]
+    atmosphericState: string
+    props: Record<string, { present: boolean, condition: string }>
+  }>
+  items: Record<string, {
+    location: string | 'character:NAME'
+    condition: string
+  }>
+}
+
+// story/db/narrative_ledger.json
+// Replaces: pending_hooks.md + subplot_board.md + character_matrix.md
+interface NarrativeLedger {
+  hooks: Record<string, {
+    question: string
+    plantedChapter: number
+    staleness: number
+    urgency: string
+    relatedCharacters: string[]
+    relatedSubplots: string[]
+  }>
+  subplots: Record<string, {
+    status: 'dormant' | 'active' | 'resolved'
+    involvedCharacters: string[]
+    lastActiveChapter: number
+  }>
+  characterRelations: Array<{
+    from: string
+    to: string
+    type: 'knows' | 'suspects' | 'trusts' | 'fears' | 'loves'
+    informationGap: string  // what FROM knows that TO does not
+    chapter: number
+  }>
+}
+
+// story/db/chronicles.json
+// Replaces: chapter_summaries.md
+interface Chronicles {
+  beats: Array<{
+    id: string
+    chapter: number
+    summary: string     // ≤25 words
+    tensionLevel: number
+    type: string
+    emotionalVector: { primary: string, valence: number }
+  }>
+  chapterSnapshots: Array<{
+    chapter: number
+    openHookCount: number
+    metabolismStatus: string
+    dominantTone: string
+  }>
+}
+```
+
+### 3.3 The Compilation Direction Is One-Way
+
+```
+JSON Ledgers (source of truth)
+        ↓  compiled by state-compiler.ts (TypeScript only)
+story/compiled/*.md  (human-readable, NEVER parsed back by system)
+```
+
+The system reads only JSON. Humans read only .md. This is absolute.
+If an author wants to edit state, they edit the JSON directly (or via Studio UI).
+
+### 3.4 Event Sourcing — State Updates via Patch Objects
+
+Never ask the 4B model to rewrite a truth file.
+Instead, extract a minimal patch at the end of each beat.
+
+```typescript
+// src/adaptation/state/event-sourcer.ts
+
+type StateEvent =
+  | { action: 'UPDATE_EMOTION';    target: string; emotion: string; delta: number }
+  | { action: 'MOVE_CHARACTER';    target: string; toLocation: string }
+  | { action: 'CONSUME_PARTICLE';  target: string; item: string; amount: number }
+  | { action: 'ACQUIRE_PARTICLE';  target: string; item: string; amount: number }
+  | { action: 'OPEN_HOOK';         id: string; description: string; characters: string[] }
+  | { action: 'CLOSE_HOOK';        id: string }
+  | { action: 'TRANSFER_ITEM';     item: string; from: string; to: string }
+  | { action: 'UPDATE_PHYSICAL';   target: string; field: keyof PhysicalState; value: string }
+  | { action: 'MOTIF_REFERENCE';   motif: string; chapter: number; beatId: string;
+      emotionalVector: { primary: string; valence: number }; associatedCharacter: string }
+  | { action: 'KNOWLEDGE_GAIN';    character: string; fact: string }
+
+// Extraction: Layer 4 Auditor forces the model to output a JSON array of
+// StateEvents using constrained decoding / JSON schema enforcement.
+// The model never rewrites any file. It only appends events.
+// TypeScript applies the events to the JSON ledgers deterministically.
+
+function applyEvent(db: EntitiesDB | NarrativeLedger, event: StateEvent): void {
+  // Pure deterministic state machine. No model involved.
+}
+```
+
+### 3.5 State Diff + Rollback
+
+```typescript
+// story/runtime/chapter-NNNN.state-diff.json
+// Stores the inverse operations for every StateEvent in this chapter.
+// Enables precise rollback without recomputing anything.
+
+interface StateDiff {
+  chapter: number
+  forwardEvents: StateEvent[]
+  inverseEvents: StateEvent[]  // applied in reverse order to undo
+}
+
+// To roll back chapters 14-19:
+// Apply inverseEvents of 19, 18, 17, 16, 15, 14 in sequence.
+// Zero LLM calls. Zero recomputation.
+```
+
+### 3.6 Attention Multipliers (replaces current_focus.md)
+
+```typescript
+// story/runtime/chapter-NNNN.rule-stack.yaml
+// Instead of a free-text focus description, encode attention as weights.
+
+interface AttentionWeights {
+  particles:       number  // default 1.0
+  emotionalArcs:   number
+  characterMatrix: number
+  pendingHooks:    number
+  physicalState:   number
+}
+
+// Example: survival chapter
+const survivalFocus: AttentionWeights = {
+  particles:       3.0,  // resources are critical
+  emotionalArcs:   0.5,  // emotion is secondary
+  characterMatrix: 1.0,
+  pendingHooks:    0.8,
+  physicalState:   2.0   // physical location matters
+}
+
+// DNA Compiler applies these weights when selecting content from ledgers.
+// Higher weight = more fields extracted from that category.
+// Pure code multiplication, no LLM.
+```
+
+---
+
+## 4. Motif Memory Index
+
+The S-tier feature. Gives the system cross-chapter literary memory.
+The 4B model cannot remember what it wrote in chapter 2.
+The system can. And it can tell the model what to do with that memory.
+
+```typescript
+// story/db/motif_index.json
+interface MotifIndex {
+  motifs: Record<string, {
+    canonicalForm: string           // 'rain'
+    variants: string[]              // ['raindrop', 'downpour', 'drizzle', 'storm']
+    history: Array<{
+      chapter: number
+      beatId: string
+      emotionalVector: { primary: string; valence: number }
+      associatedCharacter: string
+    }>
+    currentArc: 'ELEGY' | 'REDEMPTION' | 'OBLIVION' | 'MENACE' | 'IRONY'
+  }>
+}
+
+// src/adaptation/state/motif-indexer.ts
+
+function scanMotifs(beatText: string, motifIndex: MotifIndex): string[] {
+  // Lexical scan against all variant lists. Pure string matching.
+  // Returns list of motif canonical forms found in this beat.
+}
+
+function updateMotifHistory(
+  motif: string,
+  chapter: number,
+  beatId: string,
+  emotionalVector: { primary: string; valence: number },
+  associatedCharacter: string
+): void {
+  // Append to history[]. Recalculate currentArc from history sequence:
+  // Two consecutive same-valence entries → REINFORCE arc
+  // Valence reversal → CONTRAST arc
+  // Three+ entries with shifting valence → TRANSMUTE arc
+}
+
+function getMotifEcho(motif: string): MotifEcho | null {
+  // Returns last history entry + directive based on currentArc.
+  // Called by DNA Compiler when a beat's scene goal mentions the motif.
+}
+
+// Integration: in beat/pipeline.ts, after every beat passes audit:
+//   1. scanMotifs(chosenBeat)
+//   2. For each found motif: updateMotifHistory(...)
+//   3. Append MOTIF_REFERENCE event to state-diff.json
+```
+
+---
+
+## 5. Beat-Level Generation
+
+A beat = 60–150 words, one narrative unit. Chapter = 8–20 beats.
 
 ```typescript
 interface Beat {
   id:             string
-  type:           'action' | 'dialogue' | 'interiority' | 'environment' | 'transition'
-  tensionLevel:   number            // 1–10, assigned by planner
+  type:           'action' | 'dialogue' | 'interiority' | 'environment'
+                | 'transition' | 'negative-space'  // NEW type
+  tensionLevel:   number
   targetWords:    [number, number]
-  dna:            NarrativeDNA      // ≤250 tokens
-  kineticScaffold?: string          // Mandatory starting words
+  sceneGoal:      string
+  exitCondition?: string
+  dna:            NarrativeDNA
+  candidates?:    string[]  // up to 9 from 3×3 speculative
   chosen?:        string
+}
+
+const CURVES = {
+  escalation: [2, 3, 4, 5, 6, 7, 8, 9],
+  wave:       [3, 5, 7, 5, 3, 6, 8, 5],
+  slow_burn:  [2, 2, 3, 3, 4, 5, 7, 9],
+  release:    [8, 7, 6, 5, 4, 3, 2, 3],
+  quiet:      [2, 2, 3, 2, 3, 2, 3, 2],
+  reveal:     [3, 3, 4, 4, 5, 5, 8, 9],
+}
+```
+
+### 5.1 Negative Space Beat Trigger
+
+```typescript
+// beat/planner.ts
+
+function shouldInsertNegativeSpaceBeat(
+  prevBeat: Beat,
+  lastTwoBeatsHighIntensity: boolean,
+  activeDebtMagnitude: number,
+  dialogueDensityHigh: boolean  // NEW: also trigger after dense dialogue
+): boolean {
+  return (prevBeat.tensionLevel >= 8 && lastTwoBeatsHighIntensity
+      && activeDebtMagnitude > 5)   // threshold lowered from 7 to 5
+      || dialogueDensityHigh        // 3+ consecutive dialogue beats
+}
+
+// Negative space beat constraints:
+const negativeSpaceDNA = {
+  type: 'negative-space',
+  targetWords: [40, 60],
+  mustNotInclude: ['felt', 'thought', 'because', 'heart', 'eyes'],
+  kineticScaffold: 'The silence that followed',  // forced pre-fill
+  specialDirective:
+    'Describe only the physical environment. Focus on one inanimate object '
+  + 'present since Chapter 1. No human action. No interiority.',
 }
 ```
 
 ---
 
-## 6. Narrative DNA Compressor
+## 6. Narrative DNA Compiler
 
-Selector, not summarizer. Rule-based extraction — no LLM call.
-*Applies `current_focus` multipliers to select the most relevant DB facts.*
+Reads from JSON ledgers only. Never touches .md files.
+Applies attention weights during field selection.
 
 ```typescript
 interface NarrativeDNA {
-  who:             CharacterSnapshot[]  // including Spatial Posture (standing, hands full)
-  where:           string               // ≤20 words: location + one sensory anchor
+  who:             CharacterSnapshot[]
+  where:           string               // ≤20 words
+  tension:         number
   mustInclude:     string[]             // max 3
-  mustNotInclude:  string[]             // populated by Lexical Monitor + Book Rules
+  mustNotInclude:  string[]             // max 5 — includes dynamic banned words
+  openHooks:       string[]             // max 2
   lastBeatSummary: string               // ≤25 words
+  motifEcho?:      MotifEcho            // NEW
+  sensoryEcho?:    SensoryEcho          // NEW
 }
-// Spatial Matrix (Pure Code): If character's hands are full in DB, inject:
-// "Constraint: [CHARACTER] cannot pick up or manipulate new items."
+
+interface MotifEcho {
+  object:       string                  // 'rain'
+  priorEmotion: string                  // 'grief'
+  directive:    'REINFORCE' | 'CONTRAST' | 'TRANSMUTE'
+}
+
+interface SensoryEcho {
+  // When a registered motif appears, request a sub-second physical
+  // interruption. The character does not know why. Neither does the reader.
+  character:    string
+  microBehavior: string  // e.g. "fingertips pause for half a second"
+}
+
+interface CharacterSnapshot {
+  name:            string
+  speechStyle:     string
+  currentEmotion:  string
+  goal:            string
+  knows:           string[]
+  emotionalDebt:   number
+  unconsciousBias: string[]
+  physicalState:   PhysicalState        // NEW
+}
+
+// Budget: ≤250 tokens total
+// Overflow drop order: openHooks → mustInclude[2+] → knows[2+]
+// Never drop: mustNotInclude, speechStyle, currentEmotion, physicalState
 ```
 
----
-
-## 7. Kinetic Scaffold (Anti-Initialization Bias)
-
-4B models default to boring sentence structures ("He looked...", "She walked...").
-**Solution:** The system forces the first 3-5 words via prompt pre-fill.
+### 6.1 Dynamic Banned Words
 
 ```typescript
-// Controlled by Rhythm Guard. Injected at the end of the prompt:
-// "Begin the beat EXACTLY with these words: 'Without a second thought, Lin Zhe...'"
+// Appended to mustNotInclude automatically. Never injected by author.
+// After each beat is accepted, scan for "rare/elevated" vocabulary.
+// Add any such word to a rolling banned list for the next 5 beats.
+
+const STATIC_BANNED = [
+  'testament', 'tapestry', 'delve', 'pivotal', 'uncharted',
+  'shivers down', 'intricate', 'beacon', 'journey', 'realm'
+]
+// Dynamic list grows per-session. Prevents lexical fatigue.
+// If a word appears in output AND is in the top-1000 "AI vocabulary" list:
+// → ban it for next 5 beats
 ```
 
 ---
 
-## 8. Speculative Beat Generation
-
-Exactly 3 parallel candidates with different generation biases.
+## 7. Physical State Machine
 
 ```typescript
-const SPECULATIVE_VARIANTS =[
-  { id: 'A', biasTone: 'terse',    suffix: 'Short sentences. Physical detail. No interiority.' },
-  { id: 'B', biasTone: 'internal', suffix: "Prioritize the character's inner experience." },
-  { id: 'C', biasTone: 'sensory',  suffix: 'Ground every sentence in concrete sensory detail.' },
-] as const
-// Highest scored non-disqualified candidate wins.
+// context/physical-state.ts
+
+interface PhysicalState {
+  posture:        'standing' | 'sitting' | 'prone' | 'walking' | 'running'
+  locationAnchor: string           // 'by the window', 'at the table', 'doorway'
+  hands: {
+    left:  string | null           // 'revolver' | 'coffee cup' | null
+    right: string | null
+  }
+  facing:        string | null     // 'Lin Zhe', 'the door', null
+}
+
+// Injected into CharacterSnapshot. Used to generate hard constraints:
+
+function derivePhysicalConstraints(state: PhysicalState): string[] {
+  const constraints: string[] = []
+  if (state.hands.left && state.hands.right) {
+    constraints.push('Both hands are occupied. Character cannot pick up or manipulate new items.')
+  }
+  if (state.posture === 'prone') {
+    constraints.push('Character is on the ground. Standing requires an explicit action beat.')
+  }
+  return constraints  // injected into mustNotInclude
+}
+
+// Updated by StateEvent: { action: 'UPDATE_PHYSICAL', target, field, value }
+// Never inferred by model — always set explicitly by event sourcer.
 ```
 
 ---
 
-## 9. Cascade Auditor (Hardware-Enforced Fast Fail)
+## 8. Kinetic Scaffolds — Sentence Pre-Fill
 
-```
-Layer 1 — Rules (0ms)
-  Word count? No forbidden words?
+4B models have severe initialization bias. Left unconstrained, every
+beat begins with "He looked at...", "She walked towards...", "The room was..."
 
-Layer 1.5 — Proper Noun Firewall (0ms)
-  Extract all capitalized words. Check against `entities_db.json`.
-  Unknown proper noun detected (e.g., hallucinated "Elara") → Hard fail instantly.
+```typescript
+// beat/kinetic-scaffold.ts
 
-Layer 2 — Structure (0ms)
-  POV consistent? Tense consistent?
+const SCAFFOLDS: Record<Beat['type'], string[]> = {
+  action: [
+    'Slamming the',
+    'Without a word,',
+    'Dust motes scattered as',
+    'A single step,',
+    'The door caught on',
+  ],
+  dialogue: [
+    '"I cannot,"',
+    'Leaning closer,',
+    'Ignoring the question,',
+    '"You already know—"',
+    'The silence stretched until',
+  ],
+  interiority: [
+    'Not fear. Something',
+    'She had known this',
+    'The thought arrived late:',
+    'Three things at once:',
+  ],
+  environment: [
+    'The light had shifted.',
+    'Somewhere above,',
+    'Nothing moved except',
+    'At the far end,',
+  ],
+  transition: [
+    'By the time',
+    'Three hours later,',
+    'The corridor ended at',
+  ],
+  'negative-space': [
+    'The silence that followed',
+    'Nothing changed except',
+    'The object on the table',
+  ],
+}
 
-Layer 3 — Voice (1 LLM call)
-  "Matches voice? YES/NO." (Requires JSON Schema / Constrained Decoding).
+function selectScaffold(beatType: Beat['type'], recentScaffolds: string[]): string {
+  const pool = SCAFFOLDS[beatType]
+  // Exclude recently used scaffolds (last 4)
+  const available = pool.filter(s => !recentScaffolds.includes(s))
+  return available[Math.floor(Math.random() * available.length)]
+}
 
-Layer 4 — Continuity (1 LLM call)
-  4 binary questions via strict JSON format.
+// Inject at end of prompt:
+// "Complete the beat starting EXACTLY with these words: '[scaffold]...'"
+// This is prompt pre-fill — the model continues from the scaffold verbatim.
 ```
 
 ---
 
-## 10. Lexical Fatigue Monitor (Anti-AI-Smell Guard)
+## 9. Speculative Beat Generation — 3×3 in 3 Batches
 
-Small models overuse words ("shiver", "testament"). Pure TS rules. No LLM.
-Tokenize generated beat. If word length > 5 and used > 2 times in last 5 beats:
-→ Add to dynamic banned list (`mustNotInclude`) for next 10 beats.
+Semantic variants × syntactic variants = 9 candidates.
+Run as 3 serial batches, each batch is 3 parallel calls.
+Total calls: 9. Total elapsed time: 3 × (single call latency).
+
+```typescript
+// Semantic variants (unchanged):
+const SEMANTIC_VARIANTS = [
+  { id: 'SEM_TERSE',    suffix: 'Short sentences. Physical detail. No interiority.' },
+  { id: 'SEM_INTERNAL', suffix: "Prioritize the character's inner experience." },
+  { id: 'SEM_SENSORY',  suffix: 'Ground every sentence in concrete sensory detail.' },
+]
+
+// Syntactic variants (NEW):
+const SYNTACTIC_VARIANTS = [
+  { id: 'SYN_PARATAXIS', suffix: 'Short declarative sentences. Avoid conjunctions. Parataxis.' },
+  { id: 'SYN_HYPOTAXIS',  suffix: 'One long sentence with a subordinate clause. Hypotaxis.' },
+  { id: 'SYN_NOMINAL',    suffix: 'Reduce active verbs. Focus on nouns and adjectives.' },
+]
+
+// Execution:
+// Batch 1 (parallel3): SEM_TERSE × [SYN_A, SYN_B, SYN_C]
+// Batch 2 (parallel3): SEM_INTERNAL × [SYN_A, SYN_B, SYN_C]
+// Batch 3 (parallel3): SEM_SENSORY × [SYN_A, SYN_B, SYN_C]
+
+// Scoring (same as before + syntactic dimension):
+interface CandidateScore {
+  wordCountInRange:    boolean    // hard gate
+  noForbiddenContent:  boolean    // hard gate
+  tensionAlignment:    0 | 1 | 2
+  voiceSimilarity:     0 | 1 | 2 | 3
+  rhythmVariety:       0 | 1 | 2
+  beatTypeMatch:       0 | 1 | 2
+  syntacticMatch:      0 | 1 | 2  // NEW: sentence length variance vs voice sample
+  total:               number
+}
+
+// Syntactic auto-regression:
+// If the same syntactic strategy wins 2 consecutive beats,
+// it becomes the default for subsequent beats in this chapter.
+// Reduces batch-3 to 3 parallel calls of the dominant strategy only.
+```
 
 ---
 
-## 11. Emotional Debt System
+## 10. Show-Don't-Tell Scalpel
+
+Post-processor. Runs after generation, before Cascade Auditor.
+Pure code. Never asks the model's permission.
+
+```typescript
+// beat/show-dont-tell-scalpel.ts
+
+// Chinese patterns:
+const TELL_PATTERNS_ZH = [
+  { regex: /，以此(掩饰|表达|证明|掩盖)/g,  replacement: '。' },
+  { regex: /因为(他|她|它|自己)感到/g,       replacement: '' },
+  { regex: /，仿佛在说/g,                   replacement: '。' },
+  { regex: /试图以此/g,                     replacement: '' },
+  { regex: /，以此来/g,                     replacement: '。' },
+]
+
+// English patterns:
+const TELL_PATTERNS_EN = [
+  { regex: /,? as if to (show|prove|demonstrate|hide)/gi, replacement: '.' },
+  { regex: /because (he|she|they) felt/gi,               replacement: '' },
+  { regex: /, as if saying/gi,                           replacement: '.' },
+  { regex: /in order to (seem|appear|look)/gi,           replacement: '' },
+]
+
+export function exciseExplicitMotivation(text: string, lang: 'zh' | 'en'): string {
+  const patterns = lang === 'zh' ? TELL_PATTERNS_ZH : TELL_PATTERNS_EN
+  let result = text
+  patterns.forEach(p => { result = result.replace(p.regex, p.replacement) })
+  // Clean up artifacts from cuts:
+  result = result.replace(/[，。]{2,}/g, '。').replace(/\.\s*\./g, '.').trim()
+  return result
+}
+
+// Integration in beat/pipeline.ts:
+//   raw output → exciseExplicitMotivation → properNounFirewall → cascadeAuditor
+```
+
+---
+
+## 11. Proper Noun Firewall (Layer 1.5)
+
+Runs between Layer 1 (rules) and Layer 2 (structure). Zero LLM.
+
+```typescript
+// audit/proper-noun-firewall.ts
+
+function buildAllowedEntities(dna: NarrativeDNA): Set<string> {
+  // Extract all known proper nouns from the current DNA context:
+  // character names, location names, item names from entities_db
+  const allowed = new Set<string>()
+  dna.who.forEach(c => allowed.add(c.name))
+  // Add location from where field, known items, etc.
+  return allowed
+}
+
+function checkProperNounViolation(
+  beatText: string,
+  allowedEntities: Set<string>
+): { passed: boolean; violatingNouns: string[] } {
+  // Extract all capitalized multi-character tokens (proper nouns).
+  // Flag any that are not in allowedEntities.
+  // Exception: first word of sentence is always capitalized — skip it.
+  const properNounRegex = /(?<![.!?]\s)\b[A-Z][a-z]{2,}\b/g
+  const found = [...beatText.matchAll(properNounRegex)].map(m => m[0])
+  const violating = found.filter(noun => !allowedEntities.has(noun))
+  return { passed: violating.length === 0, violatingNouns: violating }
+}
+
+// Hard fail: any unknown proper noun disqualifies the candidate instantly.
+// No LLM retry. Regenerate from scratch.
+```
+
+---
+
+## 12. Cascade Auditor
+
+```
+Layer 1   — Rules (0ms)
+  Word count in range? Self-commentary? Forbidden words? Scene intruder?
+
+Layer 1.5 — Proper Noun Firewall (0ms)  ← NEW
+  Extract capitalized tokens. Check against allowed entities. Hard fail.
+
+Layer 2   — Structure (0ms)
+  Speech acts count? POV consistent? Tense consistent?
+
+Layer 3   — Voice (1 LLM call, YES/NO + one sentence)
+  Constrained decoding: output must match /^(YES|NO)[.:,]?\s.{10,100}$/
+  If backend supports: use logit_bias to suppress all tokens except
+  'YES', 'NO' as the first token.
+
+Layer 4   — Continuity (1 LLM call, 4 yes/no questions)
+  Use JSON Schema constraint: { type: 'array', items: { type: 'boolean' },
+  minItems: 4, maxItems: 4 }
+  Model outputs [true, false, true, true] — fully machine-readable.
+  Every 3rd beat OR when Layer 3 flagged concern.
+```
+
+---
+
+## 13. API-Level Enforcement
+
+Never rely on prompt instructions alone for output control.
+
+```typescript
+// For every generation call:
+interface LLMCallConfig {
+  max_tokens: number      // = Math.ceil(targetWords[1] * 1.7) + 50
+                          // +50 is the tail reserve for clean sentence endings
+  stop: string[]          // ['\n\n', '###', 'End of beat', '---']
+  temperature: number     // per task table below
+}
+
+// For audit calls (Layer 3 + 4):
+interface AuditCallConfig {
+  max_tokens: 60          // YES/NO answer needs <60 tokens
+  stop: ['\n\n']
+  // If using vLLM or llama.cpp: add grammar constraint
+  // grammar: 'root ::= ("YES" | "NO") " " [^\n]+'
+  // If using logit_bias: suppress all tokens except YES/NO at position 0
+}
+```
+
+### Temperature Table
+
+| Task                     | Temperature |
+|--------------------------|-------------|
+| Action beats             | 0.75        |
+| Dialogue beats           | 0.82        |
+| Interiority beats        | 0.85        |
+| Negative space beats     | 0.70        |
+| Speculative SEM_TERSE    | 0.70        |
+| Speculative SEM_INTERNAL | 0.85        |
+| Speculative SEM_SENSORY  | 0.88        |
+| Audit YES/NO             | 0.20        |
+| Beat planning            | 0.40        |
+| Drift / Referee          | 0.20        |
+| Reader persona           | 0.30        |
+| Attacker                 | 0.50        |
+| Narrator synthesis       | 0.65        |
+| Timeline branches        | 0.88        |
+| Subtext latent           | 0.75        |
+| Event extraction (JSON)  | 0.10        |
+
+---
+
+## 14. Graceful Degradation Protocol
+
+Before sending a beat to human review, attempt automatic DNA reduction.
+Failure is almost always caused by DNA complexity overload, not model ceiling.
+
+```typescript
+// Degradation ladder — try each level before escalating:
+enum DegradationLevel {
+  FULL        = 0,  // normal DNA, all constraints
+  REDUCED     = 1,  // drop openHooks, reduce mustInclude to 1
+  MINIMAL     = 2,  // only who, where, lastBeatSummary, mustNotInclude
+  SCAFFOLD    = 3,  // only physicalState + sceneGoal + scaffold pre-fill
+  HUMAN_GATE  = 4,  // escalate
+}
+
+function degradeDNA(dna: NarrativeDNA, level: DegradationLevel): NarrativeDNA {
+  switch (level) {
+    case DegradationLevel.REDUCED:
+      return { ...dna, openHooks: [], mustInclude: dna.mustInclude.slice(0, 1) }
+    case DegradationLevel.MINIMAL:
+      return { who: dna.who, where: dna.where,
+               lastBeatSummary: dna.lastBeatSummary,
+               mustNotInclude: dna.mustNotInclude,
+               mustInclude: [], openHooks: [], tension: dna.tension }
+    case DegradationLevel.SCAFFOLD:
+      return minimalDNA(dna)  // bare minimum + kinetic scaffold
+    default:
+      return dna
+  }
+}
+// Progression: FULL → retry ×2 → REDUCED → retry ×2 → MINIMAL
+//              → retry ×2 → SCAFFOLD → retry ×1 → HUMAN_GATE
+```
+
+---
+
+## 15. Prompt Engineering Rules
+
+### Rule 1 — Single task, stated first
+```
+GOOD: "You are a prose writer. Write ONE action beat, 80-110 words,
+       where Lin Zhe exits the underground shop."
+```
+
+### Rule 2 — DNA block before instruction
+```
+[CONTEXT — read but do not reproduce]
+Character: Lin Zhe — short sentences, deflects with questions
+  Physical: standing, facing door, left hand: revolver (cannot pick up items)
+Location: Underground shop, B2. Fluorescent light. Old paper smell.
+Tension: 6/10 (rising)
+Must include: Lin Zhe noticing the dealer's missing fingers
+Must not include: felt, testament, because she felt, 'as if to'
+[MOTIF ECHO] 'rain' previously: GRIEF (Lin Zhe, ch.2). Directive: CONTRAST.
+[SENSORY ECHO] Lin Zhe's fingertips pause for half a second. No reason given.
+
+[TASK]
+Action beat. 80-110 words. Show control masking internal alarm.
+Complete the beat starting EXACTLY with these words: "Without a word,"
+Output only the prose. Nothing else.
+```
+
+### Rule 3 — Forbidden output patterns
+```
+Do not output: preamble, meta-commentary, explanations, post-prose text.
+Begin writing immediately with the scaffold words. Stop when beat is complete.
+```
+
+### Rule 4 — Audit prompts are binary + constrained
+```
+"Does this passage match Lin Zhe's voice?
+ She speaks in short sentences and deflects questions with questions.
+ [PASSAGE]
+ Output exactly: YES or NO, then one sentence of reason (10-80 words)."
+```
+
+### Rule 5 — Always set max_tokens and stop sequences at API level
+Never rely on prompt instructions alone to stop generation.
+
+---
+
+## 16. Character Voice Fingerprint
+
+```typescript
+// Generated ONCE at book creation using the largest available model.
+// 12-16 samples per major character. 4B model only consumes, never creates.
+
+interface VoiceSample {
+  situation: string   // 'when refusing', 'when afraid', 'when lying'
+  fragment:  string   // 10-30 words of actual speech
+  tags:      string[]
+}
+// At generation time: select 2-3 most contextually relevant samples.
+// Inject as few-shot examples immediately before the [TASK] block.
+```
+
+---
+
+## 17. Anti-Rhythm Guard
+
+```typescript
+// Pure TypeScript rules. Enforced at prompt construction. No LLM.
+
+interface RhythmState {
+  recentTypes:           Beat['type'][]
+  recentSentenceLengths: number[]
+  recentPOVDistance:     string[]
+  recentScaffolds:       string[]   // prevents scaffold repetition
+}
+
+// Rule 1: No 3 consecutive same-type beats
+// Rule 2: Sentence variance < 8 chars → inject length-mix instruction
+// Rule 3: Same POV distance 3× → inject distance shift
+```
+
+---
+
+## 18. Emotional Debt System
 
 ```typescript
 interface EmotionalDebt {
   emotion:          string
-  magnitude:        number   // 1–10
+  magnitude:        number     // 1-10
   beatsAccrued:     number
-  releaseThreshold: number   
+  trigger:          string
+  releaseThreshold: number     // default 20 | high-rep: 35 | low: 10
 }
-// Stored in `entities_db.json`. When triggered, injected into DNA:
-// "Character's suppressed [EMOTION] surfaces involuntarily through a physical tell."
+// Accrual: +1 per beat. -2 when acknowledged (floor 0).
+// Release injection: physical tell, word slip, or revealingly wrong action.
+// Negative space trigger threshold lowered to magnitude > 5.
 ```
 
 ---
 
-## 12. Character Unconscious
-
-Micro-behavioral layer. Output examples (0–2 per beat, derived by TS, never explained by model):
-*"She makes a small gesture 0.5 seconds before she speaks."*
-*"A half-second lag in her answer. She doesn't notice."*
-
----
-
-## 13. Subtext Engine (3-Step Dialogue)
-
-1. **Latent Layer:** "What does A truly want to say, in one unfiltered sentence?" (Never in text)
-2. **Surface Layer:** "Discuss [topic] while executing [latent intention]."
-3. **Verification:** Suspicious Persona tests for hidden tension. YES/NO.
-
----
-
-## 14. Parallel Timeline Explorer
-
-Explore 3 branches at decision points. Winning branch's beats become canon.
-Highest `NarrativePotential` (hook payoff, tension delta, rarity) wins.
-Unique details from losing branches → `discarded-gems.json`.
-
----
-
-## 15. Adversarial Refinement Loop
-
-Writer, Attacker, Referee. Up to 6 rounds. (Attacker + Referee = 2 parallel calls).
-First met condition wins: YES_FIXED × 2, Attacker ceiling hit, Round 6, or INTRODUCED_NEW_PROBLEM (revert).
-
----
-
-## 16. Curiosity Ledger & Metabolism
-
-*   **Curiosity Ledger**: Tracks hook urgency. `overdue` → Forces a reference beat.
-*   **Narrative Metabolism**: Monitors pacing. Forces `fasting` (must reveal new fact) or `gorging` (no new elements, deepen relationships) onto the Beat Planner.
-
----
-
-## 17. Scene Exit Conditions
-
-Objective, emotional, information, or time triggers.
-ALL met → append transition beat. ANY unmet after 20 beats → human gate.
-
----
-
-## 18. Dialogue Arena (Information Asymmetry)
-
-Used for pivotal scenes.
-**CRITICAL:** Breach detection (checking if A reveals what B `doesNotKnow`) MUST use word-stemming + regex or local lightweight CPU embeddings (e.g., `all-MiniLM-L6-v2`). Semantic detection by 4B models is unreliable and bypassable by synonyms.
-
----
-
-## 19. Prompt & Inference Engineering Rules
-
-### Rule 1: API-Level Forced Constraints (4B Defense)
-Small models ignore "stop writing" instructions. Enforce at API level:
-*   `max_tokens`: Strictly mapped to requested length.
-*   `stop_sequences`: Inject `["\n\n", "###", "[END]", "Note:"]`.
-
-### Rule 2: Single Task, DNA Block First
-```text
-[CONTEXT — read but do not reproduce]
-Character: Lin Zhe (hands full: medkit)
-Tension: 6/10
-Must not include: Any direct statement of fear.
-
-[TASK]
-Action beat. 80-110 words. Show control masking alarm. Prose only.
-Begin EXACTLY with: 'Footsteps echoed from the'
-```
-
-### Rule 3: Constrained Decoding for Audits
-Audit prompts MUST use API features (`response_format: json_schema`, or `grammar` definitions in vLLM/llama.cpp) to force binary or structured output.
-
-### Rule 4: Graceful Degradation Protocol
-If an LLM call fails 2 retries, the system drops the least important styling constraints and clears micro-expressions from the DNA before the final retry, preventing unnecessary human gating.
-
----
-
-## 20. Build Order
-
-```
-Phase 1 — Core Governance & State
-  State JSON Definitions → Event Sourcer → Intent Compiler 
-  → Beat Types → DNA Compressor (with DB queries)
-
-Phase 2 — Defensive Generation (4B Guardrails)
-  Lexical Monitor → Proper Noun Firewall → API Constraints Setup 
-  → Rhythm Guard (Kinetic Scaffolds) → Cascade Auditor 
-
-Phase 3 — Quality & Context
-  Speculative Generator → Voice Fingerprint → Emotional Debt 
-  → Three-Reader Simulator → Adversarial Loop
-
-Phase 4 — Intelligence & Depth
-  Curiosity Ledger → Metabolism → Subtext Engine → Timeline Explorer
-```
-
----
-
-## 21. What Not to Build
-
-*   Do not let the model read or write markdown bible files directly.
-*   Do not use LLMs for tasks that regex, stemmers, or graph databases can solve.
-*   Do not build a prose quality scorer via 4B model — unreliable.
-*   Do not let any state persist implicitly across calls — always externalize via Event Sourcing.
-*   Do not exceed 3 concurrent LLM calls.
-
----
-
-## 22. The Architecture in One Sentence
-
-The model writes sentences; the system tracks the universe.
-
-
-这份结合了我们所有深度讨论的**最终完整版 `CLAUDE.md`** 已经准备就绪。
-
-这份文档不仅保留了“3并发限制”、“Beat流式生成”等核心机制，更将**“V2输入治理”、“事件溯源状态机”、“专有名词防火墙”以及“首句动能脚手架”**等进阶硬核方案完全融入了架构中。它是专为 4B 级别模型压榨极限性能而生的最高工程纲领。
-
-你可以直接复制并覆盖现有的 `CLAUDE.md`。
-
----
-
-# CLAUDE.md — inkos × Small Model Adaptation Layer
-# Language: English
-# Target: 4B parameter models | Hardware: MAX 3 parallel LLM calls
-# Base project: fork of Narcooo/inkos
-
-## 0. The One Principle
-
-> A 4B model asked to do one small thing reliably is more powerful than
-> a 4B model asked to do one large thing intelligently.
-
-Every architecture decision answers: "Can this model succeed at THIS
-subtask without needing to be smart about anything else?"
-If it requires the model to figure something out — move that into the system.
-
-The 3-parallel constraint is not a limitation. It is a design constraint
-that gives the system structural coherence: 3 timeline branches, 3 beat
-candidates, 3 reader personas, 3 adversarial roles per round.
-
----
-
-## 1. Repository Layout (System Code vs. Story State)
-
-```text
-inkos/
-├── story/                              ← World State & Governance
-│   ├── bibles/                         ← Human-authored macro constraints
-│   │   ├── author_intent.md            ← Long-term direction
-│   │   ├── current_focus.md            ← Short-term attention (1-3 chapters)
-│   │   ├── book_rules.md               ← Hard bans, stat caps, custom logic
-│   │   └── story_bible.md              ← Lore & world-building
-│   ├── db/                             ← Ground Truth (JSON - NEVER modified by LLM directly)
-│   │   ├── entities_db.json            ← Characters, emotional debts, items, locations
-│   │   ├── narrative_ledger.json       ← Open hooks, subplots, character knowledge matrix
-│   │   └── chronicles.json             ← Chapter summaries & event logs
-│   └── runtime/                        ← Reproducibility & Rollbacks
-│       └── chapter-XXXX/
-│           ├── intent.md               
-│           ├── context.json            ← Actual injected DNA for this chapter
-│           ├── rule-stack.yaml         ← Compiled runtime constraints
-│           └── state-diff.json         ← State patches applied (0-cost undo capability)
-├── src/
-│   ├── adaptation/
-│   │   ├── index.ts                    ← all inkos hooks here
-│   │   ├── state/
-│   │   │   ├── intent-compiler.ts      ← bibles → system weights/rules
-│   │   │   └── event-sourcer.ts        ← LLM delta output → db/ mutations
-│   │   ├── beat/
-│   │   │   ├── pipeline.ts
-│   │   │   ├── planner.ts              ← tension scheduler (influenced by current_focus)
-│   │   │   └── rhythm-guard.ts         ← anti-fatigue & kinetic scaffolds
-...
-```
-Never modify existing inkos source files. Hook via `adaptation/index.ts` only.
-
----
-
-## 2. State Management: Event Sourcing & 0-Cost Rollback
-
-A 4B model cannot read or safely update a 2,000-word markdown file.
-**Rule:** The model NEVER mutates state directly. The model outputs precise events.
+## 19. Character Unconscious
 
 ```typescript
-// The model is constrained via JSON Schema to output only valid events at chapter/beat end:
-type StateEvent = 
-  | { action: 'UPDATE_EMOTION', target: string, emotion: string, delta: number }
-  | { action: 'CONSUME_PARTICLE', target: string, amount: number }
-  | { action: 'OPEN_HOOK', id: string, description: string }
-
-// Pure code applies these events to db/ JSONs and saves the delta to runtime/state-diff.json.
-// If the author rejects chapter 15, system simply reverts state-diffs from 15 → DB rolls back instantly.
-// Human-readable .md files are compiled FROM the DB for UI viewing, not the other way around.
+// Rule-based derivation → 0-2 micro-behavior injections per beat.
+// Examples: half-second lag, gesture before speaking, contradiction.
+// Never explained in prose. Only witnessed.
 ```
 
 ---
 
-## 3. V2 Input Governance (Macro-Control Layer)
+## 20. Subtext Engine
 
-Macro-files (like `author_intent.md`) never enter the LLM's context window verbatim. They are compiled into **System Constraints and Weights**.
-
-*   **`current_focus.md` vs `volume_outline.md`**: Handled by the Beat Planner (TS rules). If focus requires "slow pacing", Planner overrides outline and injects interiority/dialogue beats.
-*   **`author_intent.md`**: Compiles to scoring weights in Timeline Explorer (e.g., if intent is "isolation", branches where relationships decay score +5).
-*   **`book_rules.md` / Genre Rules**: Compiles directly into Prompt strict bans (Hard gates) and Auditor custom dimensions.
+```
+Step 1: Latent layer (1 call, never in final text)
+Step 2: Surface dialogue constrained by latent (1 call)
+Step 3: Verify via suspicious reader persona (1 call, YES/NO)
+Max 2 retry cycles if NO.
+```
 
 ---
 
-## 4. The 3-Parallel Rule
+## 21. Parallel Timeline Explorer
 
 ```typescript
-async function parallel3<T>(
-  tasks:[() => Promise<T>, () => Promise<T>, () => Promise<T>]
-): Promise<[T, T, T]> {
-  return Promise.all(tasks.map(t => t())) as Promise<[T, T, T]>
+// 3 branches in parallel (uses full 3-parallel budget).
+// NarrativePotential scoring includes rarityScore:
+//   unique in 1/3 branches = +3 | 2/3 = +1 | 3/3 = +0
+// Unique details from losing branches → discarded-gems.json
+```
+
+---
+
+## 22. Adversarial Refinement Loop
+
+```typescript
+// Writer / Attacker / Referee — up to 6 rounds.
+// Per round: Attacker + Referee run concurrently (2 parallel slots).
+// Writer runs alone after both complete.
+// Attacker identifies ONE problem only. Never more than one.
+// Exit: YES_FIXED ×2 | same problem ×2 | round 6 | INTRODUCED_NEW_PROBLEM
+```
+
+---
+
+## 23. Three-Reader Simulator
+
+```typescript
+const READER_PERSONAS = [
+  { id: 'impatient', question: 'Did this give me a reason to read the next beat?' },
+  { id: 'suspicious', question: 'Did anything confuse me or feel inconsistent?' },
+  { id: 'visual', question: 'Can I picture this scene in my mind?' },
+]
+// 3 parallel calls. Elapsed time = single call.
+// All 3 NO → discard beat, re-enter speculative pipeline at REDUCED degradation.
+```
+
+---
+
+## 24. Knowledge Boundary in Dialogue Arena
+
+```typescript
+interface KnowledgeBoundary {
+  knows:       string[]
+  suspects:    string[]
+  doesNotKnow: string[]  // NEVER injected into agent context
 }
+
+// Breach detection:
+// Primary: stemming + word-root matching (pure code, no model)
+//   "murder weapon is a knife" → roots: {murder, weapon, knife}
+//   "he saw the blade" → roots: {saw, blade}
+//   blade not in {murder, weapon, knife} → no breach detected
+//   BUT: add synonym expansion to roots using static WordNet subset
+//   blade → {knife, dagger, sword} → breach detected
+//
+// Optional Phase 4 upgrade: replace with all-MiniLM-L6-v2 embeddings
+// (CPU inference ~5ms, cosine similarity threshold 0.72)
 ```
-If a component needs more than 3 concurrent calls: serialize into batches of 3. This constraint is load-bearing throughout the architecture.
 
 ---
 
-## 5. Beat-Level Generation (Target: 60–150 words)
+## 25. Narrative Drift Detector
 
-Beat Sequencer plans the full chapter before generating any prose. Planning uses rules, not LLM.
+```
+Every 5 chapters. No LLM. Pure measurement.
+Severity: nominal (<15%) | watch (15-25%) | alert (25-40%) | critical (>40%)
+alert/critical → human gate with plain-language report.
+```
+
+---
+
+## 26. Curiosity Ledger
 
 ```typescript
-interface Beat {
-  id:             string
-  type:           'action' | 'dialogue' | 'interiority' | 'environment' | 'transition'
-  tensionLevel:   number            // 1–10, assigned by planner
-  targetWords:    [number, number]
-  dna:            NarrativeDNA      // ≤250 tokens
-  kineticScaffold?: string          // Mandatory starting words
-  chosen?:        string
-}
+// dormant <3 | warm 3-5 | urgent 6-8 | overdue >8 chapters
+// urgent: recommend reference beat
+// overdue: mandatory reference beat (human override required to remove)
 ```
 
 ---
 
-## 6. Narrative DNA Compressor
-
-Selector, not summarizer. Rule-based extraction — no LLM call.
-*Applies `current_focus` multipliers to select the most relevant DB facts.*
+## 27. Narrative Metabolism
 
 ```typescript
-interface NarrativeDNA {
-  who:             CharacterSnapshot[]  // including Spatial Posture (standing, hands full)
-  where:           string               // ≤20 words: location + one sensory anchor
-  mustInclude:     string[]             // max 3
-  mustNotInclude:  string[]             // populated by Lexical Monitor + Book Rules
-  lastBeatSummary: string               // ≤25 words
-}
-// Spatial Matrix (Pure Code): If character's hands are full in DB, inject:
-// "Constraint: [CHARACTER] cannot pick up or manipulate new items."
+// fasting 2+ chapters: force reveal one unknown fact
+// gorging 1+ chapters: no new elements, deepen existing
+// Health: infoRevealRate [2,6] | payoffRate [0.1, 0.4]
 ```
 
 ---
 
-## 7. Kinetic Scaffold (Anti-Initialization Bias)
-
-4B models default to boring sentence structures ("He looked...", "She walked...").
-**Solution:** The system forces the first 3-5 words via prompt pre-fill.
+## 28. Scene Exit Conditions
 
 ```typescript
-// Controlled by Rhythm Guard. Injected at the end of the prompt:
-// "Begin the beat EXACTLY with these words: 'Without a second thought, Lin Zhe...'"
+// ALL conditions met → transition beat, close scene.
+// 20 beats without exit → human gate.
 ```
 
 ---
 
-## 8. Speculative Beat Generation
+## 29. Build Order
 
-Exactly 3 parallel candidates with different generation biases.
+```
+Phase 1 — Core + Data Architecture
+  JSON ledger schema (types.ts)
+  Event sourcer + state-compiler (one-way .md generation)
+  State diff + rollback
+  DNA Compiler (reads JSON, applies attention weights)
+  Beat pipeline (60-150 words)
+  Tension scheduler
+  Anti-rhythm guard
+  Kinetic scaffold
+  Show-don't-tell scalpel
+  Cascade auditor (L1 + L1.5 + L2 + L3 stub + L4 stub)
+  Proper noun firewall (L1.5)
+  API config: max_tokens + stop sequences everywhere
+  Replace inkos compose pipeline
+
+Phase 2 — Quality
+  Voice fingerprint
+  Speculative generator 3×3 (3 serial batches)
+  Emotional debt
+  Three-reader simulator (3-parallel)
+  Adversarial loop (3 roles, 6 rounds)
+  Dynamic banned word list
+  Graceful degradation protocol
+
+Phase 3 — Intelligence
+  Motif Memory Index (full implementation)
+  Physical state machine
+  Curiosity ledger
+  Drift detector
+  Scene exit conditions
+  Narrative metabolism
+  Character unconscious + sensory echo
+  Negative space beat trigger
+
+Phase 4 — Depth
+  Subtext engine
+  Timeline explorer (3-parallel branches)
+  Dialogue arena (narrator + 2 character agents, stemming breach detection)
+  Studio UI: motif timeline, emotional debt heatbar, curiosity panel
+  Optional: all-MiniLM-L6-v2 for knowledge breach semantic matching
+```
+
+---
+
+## 30. Tests
 
 ```typescript
-const SPECULATIVE_VARIANTS =[
-  { id: 'A', biasTone: 'terse',    suffix: 'Short sentences. Physical detail. No interiority.' },
-  { id: 'B', biasTone: 'internal', suffix: "Prioritize the character's inner experience." },
-  { id: 'C', biasTone: 'sensory',  suffix: 'Ground every sentence in concrete sensory detail.' },
-] as const
-// Highest scored non-disqualified candidate wins.
+// Data architecture
+test('event sourcer never modifies .md files directly')
+test('applyEvent is deterministic: same event = same result always')
+test('rollback restores exact pre-chapter state')
+test('state-compiler is one-way: JSON → .md, never .md → JSON')
+
+// Motif system
+test('scanMotifs detects variant forms (downpour → RAIN)')
+test('motif arc is CONTRAST after valence reversal')
+test('motifEcho directive injects correctly into prompt')
+
+// Physical state
+test('full hands constraint blocks pick-up action')
+test('prone posture constraint blocks running action')
+
+// Speculative
+test('3×3 runs as exactly 3 batches of 3, never 9 concurrent')
+test('syntactic auto-regression activates after 2 consecutive wins')
+
+// Scalpel
+test('exciseExplicitMotivation removes causal tell patterns')
+test('exciseExplicitMotivation does not corrupt surrounding sentences')
+
+// Proper noun firewall
+test('blocks hallucinated entity not in allowed list')
+test('does not block sentence-initial capitalization')
+
+// Graceful degradation
+test('escalates through all 4 levels before human gate')
+test('REDUCED DNA drops openHooks and extra mustInclude items')
+
+// API config
+test('max_tokens = ceil(targetWords[1] * 1.7) + 50')
+test('stop sequences include \\n\\n and ###')
 ```
 
 ---
 
-## 9. Cascade Auditor (Hardware-Enforced Fast Fail)
+## 31. What Not to Build
 
-```
-Layer 1 — Rules (0ms)
-  Word count? No forbidden words?
-
-Layer 1.5 — Proper Noun Firewall (0ms)
-  Extract all capitalized words. Check against `entities_db.json`.
-  Unknown proper noun detected (e.g., hallucinated "Elara") → Hard fail instantly.
-
-Layer 2 — Structure (0ms)
-  POV consistent? Tense consistent?
-
-Layer 3 — Voice (1 LLM call)
-  "Matches voice? YES/NO." (Requires JSON Schema / Constrained Decoding).
-
-Layer 4 — Continuity (1 LLM call)
-  4 binary questions via strict JSON format.
-```
+Do not parse .md files for state. JSON ledgers are the only source of truth.
+Do not ask the 4B model to update state in free text. Events only.
+Do not run more than 3 concurrent LLM calls. Batches of 3, always.
+Do not build a prose quality scorer using the 4B model.
+Do not allow character agents to communicate without Narrator mediation.
+Do not add a 5th layer to the Cascade Auditor.
+Do not skip stop sequences or max_tokens. Always set both at API level.
 
 ---
 
-## 10. Lexical Fatigue Monitor (Anti-AI-Smell Guard)
+## 32. The Architecture in One Sentence
 
-Small models overuse words ("shiver", "testament"). Pure TS rules. No LLM.
-Tokenize generated beat. If word length > 5 and used > 2 times in last 5 beats:
-→ Add to dynamic banned list (`mustNotInclude`) for next 10 beats.
-
----
-
-## 11. Emotional Debt System
-
-```typescript
-interface EmotionalDebt {
-  emotion:          string
-  magnitude:        number   // 1–10
-  beatsAccrued:     number
-  releaseThreshold: number   
-}
-// Stored in `entities_db.json`. When triggered, injected into DNA:
-// "Character's suppressed [EMOTION] surfaces involuntarily through a physical tell."
-```
-
----
-
-## 12. Character Unconscious
-
-Micro-behavioral layer. Output examples (0–2 per beat, derived by TS, never explained by model):
-*"She makes a small gesture 0.5 seconds before she speaks."*
-*"A half-second lag in her answer. She doesn't notice."*
-
----
-
-## 13. Subtext Engine (3-Step Dialogue)
-
-1. **Latent Layer:** "What does A truly want to say, in one unfiltered sentence?" (Never in text)
-2. **Surface Layer:** "Discuss [topic] while executing [latent intention]."
-3. **Verification:** Suspicious Persona tests for hidden tension. YES/NO.
-
----
-
-## 14. Parallel Timeline Explorer
-
-Explore 3 branches at decision points. Winning branch's beats become canon.
-Highest `NarrativePotential` (hook payoff, tension delta, rarity) wins.
-Unique details from losing branches → `discarded-gems.json`.
-
----
-
-## 15. Adversarial Refinement Loop
-
-Writer, Attacker, Referee. Up to 6 rounds. (Attacker + Referee = 2 parallel calls).
-First met condition wins: YES_FIXED × 2, Attacker ceiling hit, Round 6, or INTRODUCED_NEW_PROBLEM (revert).
-
----
-
-## 16. Curiosity Ledger & Metabolism
-
-*   **Curiosity Ledger**: Tracks hook urgency. `overdue` → Forces a reference beat.
-*   **Narrative Metabolism**: Monitors pacing. Forces `fasting` (must reveal new fact) or `gorging` (no new elements, deepen relationships) onto the Beat Planner.
-
----
-
-## 17. Scene Exit Conditions
-
-Objective, emotional, information, or time triggers.
-ALL met → append transition beat. ANY unmet after 20 beats → human gate.
-
----
-
-## 18. Dialogue Arena (Information Asymmetry)
-
-Used for pivotal scenes.
-**CRITICAL:** Breach detection (checking if A reveals what B `doesNotKnow`) MUST use word-stemming + regex or local lightweight CPU embeddings (e.g., `all-MiniLM-L6-v2`). Semantic detection by 4B models is unreliable and bypassable by synonyms.
-
----
-
-## 19. Prompt & Inference Engineering Rules
-
-### Rule 1: API-Level Forced Constraints (4B Defense)
-Small models ignore "stop writing" instructions. Enforce at API level:
-*   `max_tokens`: Strictly mapped to requested length.
-*   `stop_sequences`: Inject `["\n\n", "###", "[END]", "Note:"]`.
-
-### Rule 2: Single Task, DNA Block First
-```text
-[CONTEXT — read but do not reproduce]
-Character: Lin Zhe (hands full: medkit)
-Tension: 6/10
-Must not include: Any direct statement of fear.
-
-[TASK]
-Action beat. 80-110 words. Show control masking alarm. Prose only.
-Begin EXACTLY with: 'Footsteps echoed from the'
-```
-
-### Rule 3: Constrained Decoding for Audits
-Audit prompts MUST use API features (`response_format: json_schema`, or `grammar` definitions in vLLM/llama.cpp) to force binary or structured output.
-
-### Rule 4: Graceful Degradation Protocol
-If an LLM call fails 2 retries, the system drops the least important styling constraints and clears micro-expressions from the DNA before the final retry, preventing unnecessary human gating.
-
----
-
-## 20. Build Order
-
-```
-Phase 1 — Core Governance & State
-  State JSON Definitions → Event Sourcer → Intent Compiler 
-  → Beat Types → DNA Compressor (with DB queries)
-
-Phase 2 — Defensive Generation (4B Guardrails)
-  Lexical Monitor → Proper Noun Firewall → API Constraints Setup 
-  → Rhythm Guard (Kinetic Scaffolds) → Cascade Auditor 
-
-Phase 3 — Quality & Context
-  Speculative Generator → Voice Fingerprint → Emotional Debt 
-  → Three-Reader Simulator → Adversarial Loop
-
-Phase 4 — Intelligence & Depth
-  Curiosity Ledger → Metabolism → Subtext Engine → Timeline Explorer
-```
-
----
-
-## 21. What Not to Build
-
-*   Do not let the model read or write markdown bible files directly.
-*   Do not use LLMs for tasks that regex, stemmers, or graph databases can solve.
-*   Do not build a prose quality scorer via 4B model — unreliable.
-*   Do not let any state persist implicitly across calls — always externalize via Event Sourcing.
-*   Do not exceed 3 concurrent LLM calls.
-
----
-
-## 22. The Architecture in One Sentence
-
-The model writes sentences; the system tracks the universe.
+The model writes sentences. The system writes the novel.

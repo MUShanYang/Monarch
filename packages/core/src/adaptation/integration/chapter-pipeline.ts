@@ -135,6 +135,7 @@ export class ChapterPipelineAdapter {
           hooksToAdvance: config.hooksToAdvance,
           lastBeatSummary,
           isChapterEnd: isLastBeat,
+          chapterNumber: config.chapterNumber,
         });
 
         result.beats.push(step);
@@ -183,6 +184,7 @@ export class ChapterPipelineAdapter {
     hooksToAdvance: string[];
     lastBeatSummary: string;
     isChapterEnd?: boolean;
+    chapterNumber?: number;
   }): Promise<BeatGenerationStep> {
     const step: BeatGenerationStep = {
       beatIndex: params.beatIndex,
@@ -200,6 +202,7 @@ export class ChapterPipelineAdapter {
       primaryLocationId: params.primaryLocationId,
       hooksToAdvance: params.hooksToAdvance,
       lastBeatSummary: params.lastBeatSummary,
+      chapterNumber: params.chapterNumber,
     });
 
     step.dna = preGen.dna;
@@ -207,7 +210,7 @@ export class ChapterPipelineAdapter {
 
     const request: BeatGenerationRequest = {
       beatId: `beat-${params.beatIndex}`,
-      chapterNumber: 1,
+      chapterNumber: params.chapterNumber ?? 1,
       beatType: params.beatType,
       tensionLevel: params.tensionLevel,
       dna: preGen.dna,

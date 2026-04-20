@@ -116,6 +116,18 @@ const KINETIC_SCAFFOLDS: Record<BeatType, string[]> = {
     "The storm passed,",
     "Clarity returned as",
   ],
+  "negative-space": [
+    "The silence that followed",
+    "Nothing moved",
+    "For a long moment, nothing happened",
+    "The stillness stretched",
+    "A pause hung in the air",
+    "The moment stretched thin",
+    "Quiet descended",
+    "Time seemed to slow",
+    "The world held its breath",
+    "A beat passed in silence",
+  ],
 };
 
 const BEAT_TYPE_COMPATIBILITY: Record<BeatType, BeatType[]> = {
@@ -127,11 +139,12 @@ const BEAT_TYPE_COMPATIBILITY: Record<BeatType, BeatType[]> = {
   revelation: ["dialogue", "interiority", "action", "tension"],
   tension: ["action", "dialogue", "revelation", "resolution"],
   resolution: ["transition", "environment", "interiority", "dialogue"],
+  "negative-space": ["action", "dialogue", "environment", "transition"],
 };
 
 const ALL_BEAT_TYPES: BeatType[] = [
   "action", "dialogue", "interiority", "environment",
-  "transition", "revelation", "tension", "resolution",
+  "transition", "revelation", "tension", "resolution", "negative-space",
 ];
 
 export class RhythmGuard {

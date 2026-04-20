@@ -180,6 +180,18 @@ export class EventSourcer {
           return this.applyLogEvent(snapshot, event, chapter);
         case "UPDATE_SUBPLOT":
           return this.applyUpdateSubplot(snapshot, event, chapter);
+        case "MOVE_CHARACTER":
+          return this.applyMoveCharacter(snapshot, event, chapter);
+        case "ACQUIRE_PARTICLE":
+          return this.applyAcquireParticle(snapshot, event, chapter);
+        case "UPDATE_PHYSICAL":
+          return this.applyUpdatePhysical(snapshot, event, chapter);
+        case "MOTIF_REFERENCE":
+          return this.applyMotifReference(snapshot, event, chapter);
+        case "KNOWLEDGE_GAIN":
+          return this.applyKnowledgeGain(snapshot, event, chapter);
+        case "CLOSE_HOOK":
+          return this.applyCloseHook(snapshot, event, chapter);
         default:
           return { success: false, error: `Unknown event action: ${(event as { action: string }).action}` };
       }
@@ -723,6 +735,159 @@ export class EventSourcer {
     return {
       success: true,
       snapshot: { ...snapshot, ledger: { ...snapshot.ledger, subplots: updatedSubplots } },
+    };
+  }
+
+  private applyMoveCharacter(
+    snapshot: EntityStateSnapshot,
+    event: Extract<StateEvent, { action: "MOVE_CHARACTER" }>,
+    chapter: number,
+  ): ApplyEventResult & { snapshot?: EntityStateSnapshot } {
+    const character = this.findCharacter(snapshot.entities, event.target);
+    if (!character) {
+      return { success: false, error: `Character not found: ${event.target}` };
+    }
+
+    const oldLocation = character.currentLocation;
+
+    const updatedCharacter: CharacterSnapshot = {
+      ...character,
+      currentLocation: event.toLocation,
+      lastAppearanceChapter: chapter,
+    };
+
+    const updatedLocations = snapshot.entities.locations.map((loc) => {
+      if (loc.id === event.toLocation || loc.name === event.toLocation) {
+        const present = new Set(loc.charactersPresent);
+        present.add(character.id);
+        return { ...loc, charactersPresent: [...present], lastMentionedChapter: chapter };
+      }
+      if (oldLocation && (loc.id === oldLocation || loc.name === oldLocation)) {
+        const present = new Set(loc.charactersPresent);
+        present.delete(character.id);
+        return { ...loc, charactersPresent: [...present] };
+      }
+      return loc;
+    });
+
+    return {
+      success: true,
+      snapshot: {
+        ...this.updateCharacterInSnapshot(snapshot, updatedCharacter),
+        entities: { ...snapshot.entities, locations: updatedLocations },
+      },
+    };
+  }
+
+  private applyAcquireParticle(
+    snapshot: EntityStateSnapshot,
+    event: Extract<StateEvent, { action: "ACQUIRE_PARTICLE" }>,
+    _chapter: number,
+  ): ApplyEventResult & { snapshot?: EntityStateSnapshot } {
+    return {
+      success: true,
+      warnings: [`ACQUIRE_PARTICLE event received for ${event.target}, item: ${event.item}, amount: ${event.amount}. Particle system not fully implemented.`],
+      snapshot,
+    };
+  }
+
+  private applyUpdatePhysical(
+    snapshot: EntityStateSnapshot,
+    event: Extract<StateEvent, { action: "UPDATE_PHYSICAL" }>,
+    _chapter: number,
+  ): ApplyEventResult & { snapshot?: EntityStateSnapshot } {
+    const character = this.findCharacter(snapshot.entities, event.target);
+    if (!character) {
+      return { success: false, error: `Character not found: ${event.target}` };
+    }
+
+    let updatedCharacter: CharacterSnapshot = { ...character };
+
+    switch (event.field) {
+      case "posture":
+        updatedCharacter.spatialPosture = event.value as import("../types/state-types.js").SpatialPosture;
+        break;
+      case "locationAnchor":
+        break;
+      case "handsLeft":
+      case "handsRight":
+        if (!updatedCharacter.heldItems.includes(event.value)) {
+          updatedCharacter.heldItems = [...updatedCharacter.heldItems, event.value];
+          updatedCharacter.handState = this.inferHandState(updatedCharacter.heldItems);
+        }
+        break;
+      case "facing":
+        break;
+      default:
+        return { success: false, error: `Unknown physical field: ${event.field}` };
+    }
+
+    return {
+      success: true,
+      snapshot: this.updateCharacterInSnapshot(snapshot, updatedCharacter),
+    };
+  }
+
+  private applyMotifReference(
+    snapshot: EntityStateSnapshot,
+    event: Extract<StateEvent, { action: "MOTIF_REFERENCE" }>,
+    _chapter: number,
+  ): ApplyEventResult & { snapshot?: EntityStateSnapshot } {
+    return {
+      success: true,
+      warnings: [`MOTIF_REFERENCE event: ${event.motif} in chapter ${event.chapter}, beat ${event.beatId}`],
+      snapshot,
+    };
+  }
+
+  private applyKnowledgeGain(
+    snapshot: EntityStateSnapshot,
+    event: Extract<StateEvent, { action: "KNOWLEDGE_GAIN" }>,
+    _chapter: number,
+  ): ApplyEventResult & { snapshot?: EntityStateSnapshot } {
+    const character = this.findCharacter(snapshot.entities, event.character);
+    if (!character) {
+      return { success: false, error: `Character not found: ${event.character}` };
+    }
+
+    const knowledgeSet = new Set(character.knowledge);
+    knowledgeSet.add(event.fact);
+
+    const updatedCharacter: CharacterSnapshot = {
+      ...character,
+      knowledge: [...knowledgeSet],
+    };
+
+    return {
+      success: true,
+      snapshot: this.updateCharacterInSnapshot(snapshot, updatedCharacter),
+    };
+  }
+
+  private applyCloseHook(
+    snapshot: EntityStateSnapshot,
+    event: Extract<StateEvent, { action: "CLOSE_HOOK" }>,
+    chapter: number,
+  ): ApplyEventResult & { snapshot?: EntityStateSnapshot } {
+    const hookIndex = snapshot.ledger.hooks.findIndex((h) => h.id === event.id);
+    if (hookIndex < 0) {
+      return { success: false, error: `Hook not found: ${event.id}` };
+    }
+
+    const existing = snapshot.ledger.hooks[hookIndex]!;
+    const updatedHook: NarrativeHook = {
+      ...existing,
+      status: "resolved",
+      lastReferencedChapter: chapter,
+      payoffChapter: chapter,
+    };
+
+    const updatedHooks = [...snapshot.ledger.hooks];
+    updatedHooks[hookIndex] = updatedHook;
+
+    return {
+      success: true,
+      snapshot: { ...snapshot, ledger: { ...snapshot.ledger, hooks: updatedHooks } },
     };
   }
 

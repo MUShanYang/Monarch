@@ -94,6 +94,7 @@ export class AdaptationHooks {
     primaryLocationId?: string;
     hooksToAdvance: string[];
     lastBeatSummary: string;
+    chapterNumber?: number;
   }): Promise<PreGenerationHooksResult> {
     if (!this.currentSnapshot || !this.currentIntent) {
       await this.initialize();
@@ -117,7 +118,7 @@ export class AdaptationHooks {
       lexicalState,
       beatType: effectiveBeatType,
       tensionLevel: params.tensionLevel,
-      chapterNumber: 1,
+      chapterNumber: params.chapterNumber ?? 1,
       beatSequence: 0,
       focusCharacterIds: params.focusCharacterIds,
       primaryLocationId: params.primaryLocationId,

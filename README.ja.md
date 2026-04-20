@@ -36,6 +36,12 @@
 
 ## アーキテクチャ概要
 
+### 完全な Adaptation Pipeline アーキテクチャ
+
+<p align="center">
+  <img src="assets/monarch v2.svg" width="100%" alt="Monarch Architecture">
+</p>
+
 ```
 ┌─────────────────────────────────────────────────────────┐
 │                    Monarch CLI                          │
@@ -446,6 +452,10 @@ const CHAPTER_END_RESERVE_TOKENS = 50;
 
 ```
 packages/core/src/adaptation/
+├── pipeline/
+│   ├── adaptation-orchestrator.ts  # メインオーケストレータ、全モジュール連結
+│   ├── index.ts                    # Pipeline エクスポート
+│   └── FLOW.md                     # 完全なフロードキュメント
 ├── state/
 │   ├── event-sourcer.ts      # イベント溯源、純粋TS状態変異
 │   ├── intent-compiler.ts    # インテントコンパイル、bible → SystemWeights
@@ -461,15 +471,30 @@ packages/core/src/adaptation/
 │   └── dna-compressor.ts     # DNA圧縮、250トークンバジェット
 ├── audit/
 │   ├── lexical-monitor.ts    # 語彙モニタリング、AI口말検出
-│   └── cascade-auditor.ts    # カスケード監査、5層検証
+│   ├── cascade-auditor.ts    # カスケード監査、5層検証
+│   └── index.ts              # 監査モジュールエクスポート
+├── generation/
+│   └── adversarial-refiner.ts  # 対抗精錬ループ (Attacker/Referee/Writer)
+├── simulation/
+│   └── reader-simulator.ts   # 三読者シミュレータ
+├── character/
+│   └── knowledge-boundary.ts # キャラクター知識境界チェック
+├── narrative/
+│   ├── drift-detector.ts     # ナラティブドリフト検出器
+│   ├── curiosity-ledger.ts   # 好奇心台帳
+│   └── metabolism.ts         # ナラティブメタボリズム
+├── scene/
+│   └── exit-conditions.ts    # シーン終了条件
 ├── llm/
 │   └── api-constraints.ts    # API制約、max_tokens計算
 ├── integration/
 │   ├── hooks.ts              # 適応層フック
 │   ├── beat-orchestrator.ts  # ビートオーケストレーション、3方向並行
-│   └── chapter-pipeline.ts   # 章パイプライン適応
-└── types/
-    └── state-types.ts        # コア状態型定義
+│   ├── chapter-pipeline.ts   # 章パイプライン適応
+│   └── index.ts              # 統合モジュールエクスポート
+├── types/
+│   └── state-types.ts        # コア状態型定義
+└── index.ts                  # メインエクスポート
 ```
 
 ## InkOS との関係

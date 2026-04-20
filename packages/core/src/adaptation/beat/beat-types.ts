@@ -15,6 +15,7 @@ export const BeatTypeSchema = z.enum([
   "revelation",
   "tension",
   "resolution",
+  "negative-space",
 ]);
 export type BeatType = z.infer<typeof BeatTypeSchema>;
 
@@ -56,6 +57,7 @@ export const NarrativeDNASchema = z.object({
   spatialConstraints: z.array(z.string()).default([]),
   motifEcho: MotifEchoSchema.optional(),
   sensoryEcho: SensoryEchoSchema.optional(),
+  styleGuide: z.string().optional(),
 });
 export type NarrativeDNA = z.infer<typeof NarrativeDNASchema>;
 
@@ -80,6 +82,7 @@ export const BeatSchema = z.object({
   auditResult: z.any().optional(),
   retryCount: z.number().int().min(0).default(0),
   status: z.enum(["pending", "generated", "audited", "approved", "rejected"]).default("pending"),
+  wordCount: z.number().int().min(0).optional(),
 });
 export type Beat = z.infer<typeof BeatSchema>;
 
@@ -255,6 +258,7 @@ export const DEFAULT_WORD_TARGETS: Record<BeatType, WordTarget> = {
   revelation: [70, 130],
   tension: [60, 110],
   resolution: [80, 140],
+  "negative-space": [40, 60],
 };
 
 export const TENSION_MODIFIERS: Record<BeatType, number> = {
@@ -266,6 +270,7 @@ export const TENSION_MODIFIERS: Record<BeatType, number> = {
   revelation: 3,
   tension: 2,
   resolution: -3,
+  "negative-space": -2,
 };
 
 export function getDefaultWordTarget(beatType: BeatType): WordTarget {

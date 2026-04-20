@@ -188,24 +188,51 @@ export class CascadeAuditor {
       return { passed: true, disqualified: false, issues: [] };
     }
 
-    const unknownNouns = detectUnknownProperNouns(this.entities, prose);
+    const allowedEntities = this.buildAllowedEntities();
+    const result = checkProperNounViolation(prose, allowedEntities);
 
-    for (const noun of unknownNouns) {
-      const isLiklySentenceStart = this.isSentenceStart(prose, noun);
-      if (this.config.strictProperNoun || !isLiklySentenceStart) {
+    if (!result.passed) {
+      for (const noun of result.violatingNouns) {
         issues.push({
           layer: "proper_noun",
           severity: "error",
           code: "UNKNOWN_PROPER_NOUN",
           message: `Unknown proper noun detected: "${noun}"`,
         });
-        if (this.config.strictProperNoun) {
-          disqualified = true;
-        }
+      }
+      if (this.config.strictProperNoun) {
+        disqualified = true;
       }
     }
 
-    return { passed: unknownNouns.length === 0, disqualified, issues };
+    return { passed: result.passed, disqualified, issues };
+  }
+
+  private buildAllowedEntities(): Set<string> {
+    const allowed = new Set<string>();
+
+    if (this.entities) {
+      for (const char of this.entities.characters) {
+        allowed.add(char.name);
+        for (const alias of char.aliases) {
+          allowed.add(alias);
+        }
+      }
+
+      for (const loc of this.entities.locations) {
+        allowed.add(loc.name);
+      }
+
+      for (const item of this.entities.items) {
+        allowed.add(item.name);
+      }
+
+      for (const noun of this.entities.properNounRegistry) {
+        allowed.add(noun);
+      }
+    }
+
+    return allowed;
   }
 
   auditStructureLayer(
@@ -365,4 +392,14 @@ export function quickAuditProse(
   };
 
   return auditor.audit(prose, dna);
+}
+
+export function checkProperNounViolation(
+  beatText: string,
+  allowedEntities: Set<string>
+): { passed: boolean; violatingNouns: string[] } {
+  const properNounRegex = /(?<![.!?]\s)\b[A-Z][a-z]{2,}\b/g;
+  const found = [...beatText.matchAll(properNounRegex)].map((m) => m[0]);
+  const violating = found.filter((noun) => !allowedEntities.has(noun));
+  return { passed: violating.length === 0, violatingNouns: violating };
 }

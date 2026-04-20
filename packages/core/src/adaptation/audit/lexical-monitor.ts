@@ -114,6 +114,13 @@ const AI_TELL_WORDS = new Set([
   "cacophony", "discord", "dissonance",
 ]);
 
+export const STATIC_BANNED_WORDS = [
+  "testament", "tapestry", "delve", "pivotal", "uncharted",
+  "shivers down", "intricate", "beacon", "journey", "realm",
+  "shimmering", "ethereal", "labyrinth", "cacophony", "symphony",
+  "tapestry", "woven", "canvas", "palpable", "visceral",
+];
+
 export class LexicalMonitor {
   private state: LexicalMonitorState;
 

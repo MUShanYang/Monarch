@@ -66,10 +66,11 @@ export const CompiledRulesSchema = z.object({
 export type CompiledRules = z.infer<typeof CompiledRulesSchema>;
 
 export const IntentCompilerOutputSchema = z.object({
-  ruleStack: z.any(),
+  ruleStack: z.array(z.string()).default([]),
   systemWeights: SystemWeightsSchema,
   compiledRules: CompiledRulesSchema,
-  sourceHash: z.string().default(""),
+  sourceHash: z.string(),
+  styleGuide: z.string().optional(),
 });
 export type IntentCompilerOutput = z.infer<typeof IntentCompilerOutputSchema>;
 
@@ -111,25 +112,68 @@ export class IntentCompiler {
   constructor(private readonly storyDir: string) {}
 
   async compile(): Promise<IntentCompilerOutput> {
-    const [authorIntent, currentFocus, bookRules, storyBible] = await Promise.all([
+    const [authorIntent, currentFocus, bookRules, storyBible, styleGuide, volumeOutline, chapterSummaries, subplotBoard, emotionalArcs, characterMatrix, parentCanon, fanficCanon] = await Promise.all([
       this.readMarkdownFile("author_intent.md"),
       this.readMarkdownFile("current_focus.md"),
       this.readMarkdownFile("book_rules.md"),
       this.readMarkdownFile("story_bible.md"),
+      this.readMarkdownFile("style_guide.md"),
+      this.readMarkdownFile("volume_outline.md"),
+      this.readMarkdownFile("chapter_summaries.md"),
+      this.readMarkdownFile("subplot_board.md"),
+      this.readMarkdownFile("emotional_arcs.md"),
+      this.readMarkdownFile("character_matrix.md"),
+      this.readMarkdownFile("parent_canon.md"),
+      this.readMarkdownFile("fanfic_canon.md"),
     ]);
 
-    const compiledRules = this.compileRules(bookRules, storyBible);
-    const systemWeights = this.compileWeights(authorIntent, currentFocus);
-    const ruleStack = this.buildRuleStack(compiledRules, authorIntent, currentFocus);
+    const compiledRules = this.compileRules(bookRules, storyBible, styleGuide);
+    const systemWeights = this.compileWeights(authorIntent, currentFocus, volumeOutline, chapterSummaries);
+    const ruleStack = this.buildRuleStack(compiledRules, authorIntent, currentFocus, styleGuide);
+    const extractedStyleGuide = this.extractStyleGuide(styleGuide, storyBible);
 
-    const sourceHash = this.hashSources([authorIntent, currentFocus, bookRules, storyBible]);
+    const sourceHash = this.hashSources([authorIntent, currentFocus, bookRules, storyBible, styleGuide, volumeOutline, chapterSummaries, subplotBoard, emotionalArcs, characterMatrix, parentCanon, fanficCanon]);
 
     return IntentCompilerOutputSchema.parse({
       ruleStack,
       systemWeights,
       compiledRules,
       sourceHash,
+      styleGuide: extractedStyleGuide,
     });
+  }
+
+  private extractStyleGuide(styleGuide: string, storyBible: string): string | undefined {
+    const styleGuideContent = styleGuide || storyBible;
+    if (!styleGuideContent) {
+      return undefined;
+    }
+
+    // 提取风格指南内容
+    const styleSections = [];
+    
+    // 从 style_guide.md 提取
+    const styleMatch = styleGuideContent.match(/(?:风格|style)[：:]([\s\S]*?)(?=\n#|$)/i);
+    if (styleMatch && styleMatch[1]) {
+      styleSections.push(styleMatch[1].trim());
+    }
+    
+    // 从 story_bible.md 提取
+    const bibleStyleMatch = storyBible.match(/(?:风格|style)[：:]([\s\S]*?)(?=\n#|$)/i);
+    if (bibleStyleMatch && bibleStyleMatch[1]) {
+      styleSections.push(bibleStyleMatch[1].trim());
+    }
+    
+    // 提取古代风格标记
+    if (styleGuideContent.includes("古代") || styleGuideContent.includes("古风") || styleGuideContent.includes("ancient")) {
+      styleSections.push("使用古代风格的词汇和表达方式，避免现代词汇和口语。语言要典雅、简洁，符合古代文学风格。");
+    }
+    
+    if (styleSections.length > 0) {
+      return styleSections.join(" ");
+    }
+    
+    return undefined;
   }
 
   private async readMarkdownFile(filename: string): Promise<string> {
@@ -141,7 +185,7 @@ export class IntentCompiler {
     }
   }
 
-  private compileRules(bookRules: string, storyBible: string): CompiledRules {
+  private compileRules(bookRules: string, storyBible: string, styleGuide: string): CompiledRules {
     const hardBans: HardBan[] = [];
     const statCaps: StatCap[] = [];
     const softGuidelines: string[] = [];
@@ -151,8 +195,10 @@ export class IntentCompiler {
 
     this.extractHardBans(bookRules, hardBans);
     this.extractHardBans(storyBible, hardBans);
+    this.extractHardBans(styleGuide, hardBans);
     this.extractStatCaps(bookRules, statCaps);
     this.extractSoftGuidelines(bookRules, softGuidelines);
+    this.extractSoftGuidelines(styleGuide, softGuidelines);
     this.extractAuditDimensions(bookRules, auditDimensions);
     this.extractProhibitedChapterTypes(bookRules, prohibitedChapterTypes);
     this.extractRequiredElements(storyBible, requiredElements);
@@ -268,7 +314,7 @@ export class IntentCompiler {
     }
   }
 
-  private compileWeights(authorIntent: string, currentFocus: string): SystemWeights {
+  private compileWeights(authorIntent: string, currentFocus: string, volumeOutline: string, chapterSummaries: string): SystemWeights {
     const dnaWeights: DnaWeight[] = [];
     const focusMultipliers: FocusMultiplier[] = [];
     const timelineWeights: TimelineWeight[] = [];
@@ -336,6 +382,46 @@ export class IntentCompiler {
       }
     }
 
+    // Extract character focus from chapter summaries
+    const recentChapters = this.extractRecentChapters(chapterSummaries, 3);
+    for (const chapter of recentChapters) {
+      const chapterCharacters = this.extractCharacterReferences(chapter);
+      for (const charId of chapterCharacters) {
+        dnaWeights.push({
+          characterId: charId,
+          weight: 7,
+          reason: "Referenced in recent chapters",
+          forceInclude: true,
+        });
+      }
+      
+      const chapterLocations = this.extractLocationReferences(chapter);
+      for (const locId of chapterLocations) {
+        dnaWeights.push({
+          locationId: locId,
+          weight: 5,
+          reason: "Referenced in recent chapters",
+          forceInclude: true,
+        });
+      }
+    }
+
+    // Extract pacing and tension from volume outline
+    if (volumeOutline.includes("高潮") || volumeOutline.includes("climax")) {
+      tensionBias = Math.min(5, tensionBias + 3);
+      pacingBias = "faster";
+    }
+    if (volumeOutline.includes("伏笔") || volumeOutline.includes("foreshadowing")) {
+      focusMultipliers.push({
+        category: "foreshadowing",
+        multiplier: 1.5,
+        description: "From volume outline",
+      });
+    }
+    if (volumeOutline.includes("情感") || volumeOutline.includes("emotional")) {
+      interiorityBias = Math.min(9, interiorityBias + 2);
+    }
+
     return SystemWeightsSchema.parse({
       dnaWeights,
       focusMultipliers,
@@ -346,10 +432,34 @@ export class IntentCompiler {
     });
   }
 
+  private extractRecentChapters(summaries: string, count: number): string[] {
+    const chapters: string[] = [];
+    const lines = summaries.split('\n');
+    let currentChapter = '';
+    
+    for (const line of lines) {
+      if (line.startsWith('# ') && (line.includes('Chapter') || line.includes('章节'))) {
+        if (currentChapter) {
+          chapters.push(currentChapter.trim());
+        }
+        currentChapter = line;
+      } else if (currentChapter) {
+        currentChapter += ' ' + line;
+      }
+    }
+    
+    if (currentChapter) {
+      chapters.push(currentChapter.trim());
+    }
+    
+    return chapters.slice(-count);
+  }
+
   private buildRuleStack(
     compiledRules: CompiledRules,
     authorIntent: string,
     currentFocus: string,
+    styleGuide: string,
   ): RuleStack {
     const hard: string[] = [];
     const soft: string[] = [];
@@ -492,12 +602,33 @@ export class IntentCompiler {
 
   private extractCharacterReferences(content: string): string[] {
     const refs: string[] = [];
+    
+    // 从角色: 标记提取
     const charMatch = content.match(/(?:角色|characters?)[：:]\s*([^\n]+)/i);
     if (charMatch && charMatch[1]) {
       const parts = charMatch[1].split(/[,，、]/).map((s) => s.trim()).filter((s) => s.length > 0);
       refs.push(...parts);
     }
-    return refs;
+    
+    // 从 character_matrix.md 格式提取
+    const matrixMatch = content.match(/\|\s*(.+?)\s*\|/g);
+    if (matrixMatch) {
+      for (const match of matrixMatch) {
+        const name = match.replace(/\|/g, '').trim();
+        if (name && !name.toLowerCase().includes('角色') && !name.toLowerCase().includes('character')) {
+          refs.push(name);
+        }
+      }
+    }
+    
+    // 从 story_bible.md 格式提取
+    const bibleMatch = content.match(/(?:名字|name)[：:]\s*([^\n]+)/i);
+    if (bibleMatch && bibleMatch[1]) {
+      const parts = bibleMatch[1].split(/[,，、]/).map((s) => s.trim()).filter((s) => s.length > 0);
+      refs.push(...parts);
+    }
+    
+    return [...new Set(refs)];
   }
 
   private extractLocationReferences(content: string): string[] {

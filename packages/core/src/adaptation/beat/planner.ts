@@ -109,7 +109,7 @@ export class BeatPlanner {
     return createBeat({
       chapterNumber,
       sequenceInChapter,
-      type: "environment",
+      type: "negative-space",
       tensionLevel,
       targetWords,
       dna,
@@ -222,6 +222,7 @@ export class BeatPlanner {
       revelation: [70, 130],
       tension: [60, 110],
       resolution: [80, 140],
+      "negative-space": [40, 60],
     };
     return targets[beatType] ?? [60, 120];
   }
