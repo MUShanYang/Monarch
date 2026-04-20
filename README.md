@@ -8,9 +8,6 @@
   <a href="README.md">中文</a> | <a href="README.en.md">English</a> | <a href="README.ja.md">日本語</a>
 </p>
 
-<p align="center">
-<span style="font-size: 56px;">「纵使洗净一切无常无情并无意义。我也仍愿，欣然赴往那尘世之中。」</span>
-</p>
 
 ***
 
@@ -19,7 +16,7 @@
 **Monarch** 是基于 [InkOS](https://github.com/Narcooo/inkos) 构建的小模型写作 Agent。专注于处理世界观、角色、事件等复杂逻辑。
 
 > \[!WARNING]
-> ⚠️ Monarch 目前是早期测试开发版本，部分功能尚未稳定。欢迎反馈问题和建议。
+> ⚠️ Monarch 目前是早期测试开发版本，部分功能尚未稳定完善。
 >
 > ⚠️ 目前正在验证可用性，暂不推荐在生产环境中使用。
 
