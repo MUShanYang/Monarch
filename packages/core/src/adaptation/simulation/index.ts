@@ -19,3 +19,24 @@ export {
   ReaderSimulationResultSchema,
   ReaderSimulatorConfigSchema,
 } from "./reader-simulator.js";
+
+export {
+  DialogueArena,
+  createDialogueArena,
+} from "./dialogue-arena.js";
+
+export type {
+  DialogueParticipant,
+  DialogueLine,
+  DialogueScene,
+  DialogueValidationResult,
+  DialogueArenaConfig,
+} from "./dialogue-arena.js";
+
+export {
+  DialogueParticipantSchema,
+  DialogueLineSchema,
+  DialogueSceneSchema,
+  DialogueValidationResultSchema,
+  DialogueArenaConfigSchema,
+} from "./dialogue-arena.js";

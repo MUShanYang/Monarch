@@ -24,3 +24,22 @@ export {
   AdversarialRefinementResultSchema,
   AdversarialRefinerConfigSchema,
 } from "./adversarial-refiner.js";
+
+export {
+  SubtextEngine,
+  createSubtextEngine,
+} from "./subtext-engine.js";
+
+export type {
+  SubtextLayer,
+  SubtextEntry,
+  SubtextAnalysisResult,
+  SubtextEngineConfig,
+} from "./subtext-engine.js";
+
+export {
+  SubtextLayerSchema,
+  SubtextEntrySchema,
+  SubtextAnalysisResultSchema,
+  SubtextEngineConfigSchema,
+} from "./subtext-engine.js";

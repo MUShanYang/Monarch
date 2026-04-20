@@ -4,3 +4,9 @@ export type { HardBan, StatCap, DnaWeight, FocusMultiplier, TimelineWeight, Syst
 export { MotifIndexer, createMotifIndexer } from "./motif-indexer.js";
 export type { MotifIndex, MotifIndexEntry, MotifHistoryEntry, MotifArc } from "./motif-types.js";
 export { MotifIndexSchema, MotifIndexEntrySchema, MotifHistoryEntrySchema, MotifArcSchema, MOTIF_VOCABULARY, getMotifVocabulary } from "./motif-types.js";
+export { StateCompiler, createStateCompiler, compileStateToMarkdown } from "./state-compiler.js";
+export type { CompiledMdFiles, StateCompilerConfig } from "./state-compiler.js";
+export { CompiledMdFilesSchema, StateCompilerConfigSchema } from "./state-compiler.js";
+export { RollbackManager, createRollbackManager } from "./rollback.js";
+export type { ChapterStateDiff, ChapterRollbackResult, RollbackManagerConfig } from "./rollback.js";
+export { ChapterStateDiffSchema, ChapterRollbackResultSchema, RollbackManagerConfigSchema } from "./rollback.js";

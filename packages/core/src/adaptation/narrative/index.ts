@@ -58,3 +58,22 @@ export {
   MetabolismReportSchema,
   MetabolismConfigSchema,
 } from "./metabolism.js";
+
+export {
+  TimelineExplorer,
+  createTimelineExplorer,
+} from "./timeline-explorer.js";
+
+export type {
+  TimelineEvent,
+  TimelineConflict,
+  TimelineAnalysisResult,
+  TimelineExplorerConfig,
+} from "./timeline-explorer.js";
+
+export {
+  TimelineEventSchema,
+  TimelineConflictSchema,
+  TimelineAnalysisResultSchema,
+  TimelineExplorerConfigSchema,
+} from "./timeline-explorer.js";
