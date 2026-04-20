@@ -3,7 +3,7 @@ import { chatCompletion, createLLMClient } from "../llm/provider.js";
 import type { Logger } from "../utils/logger.js";
 import type { BookConfig, FanficMode } from "../models/book.js";
 import type { ChapterMeta } from "../models/chapter.js";
-import type { NotifyChannel, LLMConfig, AgentLLMOverride, InputGovernanceMode } from "../models/project.js";
+import type { NotifyChannel, LLMConfig, AgentLLMOverride, InputGovernanceMode, WriteMode } from "../models/project.js";
 import type { GenreProfile } from "../models/genre-profile.js";
 import { ArchitectAgent, type ArchitectOutput } from "../agents/architect.js";
 import { FoundationReviewerAgent } from "../agents/foundation-reviewer.js";
@@ -68,6 +68,8 @@ export interface PipelineConfig {
   readonly externalContext?: string;
   readonly modelOverrides?: Record<string, string | AgentLLMOverride>;
   readonly inputGovernanceMode?: InputGovernanceMode;
+  readonly writeMode?: WriteMode;
+  readonly adaptationMaxRetries?: number;
   readonly logger?: Logger;
   readonly onStreamProgress?: OnStreamProgress;
 }
@@ -1154,7 +1156,23 @@ export class PipelineRunner {
   async writeNextChapter(bookId: string, wordCount?: number, temperatureOverride?: number): Promise<ChapterPipelineResult> {
     const releaseLock = await this.state.acquireBookLock(bookId);
     try {
-      return await this._writeNextChapterLocked(bookId, wordCount, temperatureOverride);
+      if (this.resolveWriteMode() === "adaptation") {
+        return await this._writeNextChapterWithAdaptationLocked(bookId, {
+          wordCount,
+          temperatureOverride,
+          maxRetries: this.config.adaptationMaxRetries,
+        });
+      }
+      return await this._writeNextChapterStandardLocked(bookId, wordCount, temperatureOverride);
+    } finally {
+      await releaseLock();
+    }
+  }
+
+  async writeNextChapterStandard(bookId: string, wordCount?: number, temperatureOverride?: number): Promise<ChapterPipelineResult> {
+    const releaseLock = await this.state.acquireBookLock(bookId);
+    try {
+      return await this._writeNextChapterStandardLocked(bookId, wordCount, temperatureOverride);
     } finally {
       await releaseLock();
     }
@@ -1210,6 +1228,7 @@ export class PipelineRunner {
     const stageLanguage = await this.resolveBookLanguage(book);
 
     const targetWordCount = options?.wordCount ?? book.chapterWordCount ?? 1500;
+    const adaptationBeatPlan = this.resolveAdaptationBeatPlan(targetWordCount);
     const { profile: gp } = await this.loadGenreProfile(book.genre);
     const pipelineLang = book.language ?? gp.language;
     const lengthSpec = buildLengthSpec(targetWordCount, pipelineLang);
@@ -1221,6 +1240,7 @@ export class PipelineRunner {
       chapterNumber,
       this.config.externalContext,
     );
+    const persistedPlan = await loadPersistedPlan(bookDir, chapterNumber);
     const reducedControlInput = writeInput.chapterIntent && writeInput.contextPackage && writeInput.ruleStack
       ? {
           chapterIntent: writeInput.chapterIntent,
@@ -1230,10 +1250,7 @@ export class PipelineRunner {
       : undefined;
 
     this.logStage(stageLanguage, { zh: "组合章节运行时上下文", en: "composing chapter runtime context" });
-    const { ChapterPipelineAdapter } = await import("../adaptation/index.js");
-    const pipeline = new ChapterPipelineAdapter(bookDir);
     const llmInterface = await this.buildAdaptationLLMInterface(options?.temperatureOverride);
-    pipeline.setLLMInterface(llmInterface);
 
     const { generateChapterWithAdaptation } = await import("../adaptation/index.js");
     this.logStage(stageLanguage, { zh: "撰写章节草稿", en: "writing chapter draft" });
@@ -1242,12 +1259,17 @@ export class PipelineRunner {
       targetWordRange: [Math.floor(targetWordCount * 0.8), Math.floor(targetWordCount * 1.2)],
       startTension: 5,
       endTension: 7,
-      maxBeats: 20,
-      minBeats: 5,
-      hooksToAdvance: [],
-      hooksToResolve: [],
+      maxBeats: adaptationBeatPlan.maxBeats,
+      minBeats: adaptationBeatPlan.minBeats,
+      maxRetriesPerBeat: options?.maxRetries ?? 2,
+      hooksToAdvance: persistedPlan?.intent.hookAgenda.mustAdvance ?? [],
+      hooksToResolve: persistedPlan?.intent.hookAgenda.eligibleResolve ?? [],
       focusCharacterIds: [],
       beatTypes: ["environment", "action", "dialogue", "interiority", "tension", "resolution"],
+      governedIntent: persistedPlan?.intent,
+      chapterIntent: writeInput.chapterIntent,
+      contextPackage: writeInput.contextPackage,
+      ruleStack: writeInput.ruleStack,
       llmInterface,
     });
 
@@ -1263,7 +1285,10 @@ export class PipelineRunner {
       });
     }
 
-    const adaptationTitle = `Chapter ${chapterNumber}`;
+    // Use a temporary placeholder title that will be replaced by ChapterAnalyzerAgent
+    const adaptationTitle = pipelineLang === "en"
+      ? `Chapter ${chapterNumber}`
+      : `第${chapterNumber}章`;
     const adaptationOutput: WriteChapterOutput = {
       chapterNumber,
       title: adaptationTitle,
@@ -1271,10 +1296,11 @@ export class PipelineRunner {
       wordCount: adaptationWordCount,
       preWriteCheck: "",
       postSettlement: "",
-      updatedState: "",
-      updatedLedger: "",
-      updatedHooks: "",
-      chapterSummary: "",
+      updatedState: generationResult.compiledState?.currentState ?? "",
+      updatedLedger: generationResult.compiledState?.subplotBoard ?? "",
+      updatedHooks: generationResult.compiledState?.pendingHooks ?? "",
+      chapterSummary: generationResult.chapterSummary?.summary ?? "",
+      updatedChapterSummaries: generationResult.compiledState?.chapterSummaries,
       updatedSubplots: "",
       updatedEmotionalArcs: "",
       updatedCharacterMatrix: "",
@@ -1334,14 +1360,19 @@ export class PipelineRunner {
       pipelineLang,
       { content: finalContent },
     );
+    // Pass empty content to force ChapterAnalyzerAgent to be called
+    // This will generate a proper title and truth files based on finalContent
     let persistenceOutput = await this.buildPersistenceOutput(
       bookId,
       book,
       bookDir,
       chapterNumber,
-      initialTitleResolution.title === adaptationOutput.title
-        ? adaptationOutput
-        : { ...adaptationOutput, title: initialTitleResolution.title },
+      {
+        ...(initialTitleResolution.title === adaptationOutput.title
+          ? adaptationOutput
+          : { ...adaptationOutput, title: initialTitleResolution.title }),
+        content: "",  // Empty content forces ChapterAnalyzerAgent to run
+      },
       finalContent,
       lengthSpec.countingMode,
       reducedControlInput,
@@ -1534,57 +1565,161 @@ export class PipelineRunner {
     };
   }
 
+  private resolveAdaptationBeatPlan(targetWordCount: number): { minBeats: number; maxBeats: number } {
+    const estimatedBeats = Math.max(5, Math.min(12, Math.round(targetWordCount / 450)));
+    const minBeats = Math.max(5, estimatedBeats - 1);
+    const maxBeats = Math.min(14, Math.max(minBeats, estimatedBeats + 1));
+    return { minBeats, maxBeats };
+  }
+
   private async buildAdaptationLLMInterface(temperatureOverride?: number) {
-    return {
-      async callLLM(prompt: string, systemPrompt: string, constraints: { maxTokens?: number }): Promise<string> {
-        const maxRetries = 3;
-        let lastError: Error | undefined;
+    const pipelineClient = this.config.client;
+    const pipelineModel = this.config.model;
+    const maxTokenCap = pipelineClient.defaults.maxTokensCap;
+    type AdaptationLLMConstraints = {
+      maxTokens?: number;
+      stopSequences?: string[];
+      temperature?: number;
+      topP?: number;
+      frequencyPenalty?: number;
+      presencePenalty?: number;
+      responseFormat?: "text" | "json";
+      jsonSchema?: Record<string, unknown>;
+    };
+    const buildJsonResponseFormat = (constraints: AdaptationLLMConstraints): Record<string, unknown> => {
+      if (constraints.responseFormat !== "json") {
+        return {};
+      }
 
-        for (let attempt = 1; attempt <= maxRetries; attempt++) {
-          if (attempt > 1) {
-            const delayMs = attempt === 2 ? 2000 : 5000;
-            await new Promise(r => setTimeout(r, delayMs));
+      const isCustomOpenAICompatible = (pipelineClient.service === "custom" || pipelineClient.service?.startsWith("custom:"))
+        && pipelineClient.provider === "openai"
+        && pipelineClient.apiFormat === "chat";
+
+      if (isCustomOpenAICompatible) {
+        if (constraints.jsonSchema) {
+          return {
+            response_format: {
+              type: "json_schema",
+              json_schema: {
+                name: "monarch_structured_output",
+                schema: constraints.jsonSchema,
+              },
+            },
+          };
+        }
+        return {};
+      }
+
+      return { response_format: { type: "json_object" } };
+    };
+    const resolveAdaptationMaxTokens = (requested?: number, options?: { readonly expanded?: boolean }) => {
+      if (requested === undefined || !options?.expanded) {
+        return requested;
+      }
+      const expanded = Math.max(
+        Math.ceil(requested * 4),
+        requested + 1024,
+        2048,
+      );
+      return maxTokenCap !== null ? Math.min(expanded, maxTokenCap) : expanded;
+    };
+    const buildAdaptationClient = (
+      constraints: AdaptationLLMConstraints,
+      options?: { readonly omitStopSequences?: boolean; readonly forceNonStream?: boolean },
+    ) => ({
+      ...pipelineClient,
+      stream: options?.forceNonStream ? false : constraints.responseFormat !== "json",
+      defaults: {
+        ...pipelineClient.defaults,
+        extra: {
+          ...(pipelineClient.defaults.extra ?? {}),
+          ...(!options?.omitStopSequences && constraints.stopSequences && constraints.stopSequences.length > 0
+            ? { stop: constraints.stopSequences }
+            : {}),
+          ...(constraints.topP !== undefined ? { top_p: constraints.topP } : {}),
+          ...(constraints.frequencyPenalty !== undefined ? { frequency_penalty: constraints.frequencyPenalty } : {}),
+          ...(constraints.presencePenalty !== undefined ? { presence_penalty: constraints.presencePenalty } : {}),
+          ...buildJsonResponseFormat(constraints),
+        },
+      },
+    });
+    const executeRequest = async (
+      messages: ReadonlyArray<{ role: "system" | "user"; content: string }>,
+      constraints: AdaptationLLMConstraints,
+      options?: {
+        readonly omitStopSequences?: boolean;
+        readonly expandedMaxTokens?: boolean;
+        readonly forceNonStream?: boolean;
+      },
+    ) => chatCompletion(
+      buildAdaptationClient(constraints, options),
+      pipelineModel,
+      messages,
+      {
+        maxTokens: resolveAdaptationMaxTokens(constraints.maxTokens, { expanded: options?.expandedMaxTokens }),
+        temperature: temperatureOverride ?? constraints.temperature ?? 0.8,
+      },
+    );
+    const callLLM = async (
+      prompt: string,
+      systemPrompt: string,
+      constraints: AdaptationLLMConstraints,
+    ): Promise<string> => {
+      const messages = [
+        { role: "system", content: systemPrompt } as const,
+        { role: "user", content: prompt } as const,
+      ];
+
+      try {
+        const response = await executeRequest(messages, constraints);
+
+        return response.content;
+      } catch (error) {
+        const isEmptyResponse = String(error).toLowerCase().includes("empty response");
+        const isTextRequest = constraints.responseFormat === "text";
+        const canRetryWithoutStops = isTextRequest
+          && Boolean(constraints.stopSequences && constraints.stopSequences.length > 0);
+
+        if (!isEmptyResponse || !isTextRequest) {
+          throw error;
+        }
+
+        try {
+          if (canRetryWithoutStops) {
+            this.config.logger?.warn("Adaptation text request returned empty response with stop sequences; retrying without stop sequences.");
+            const retryResponse = await executeRequest(messages, constraints, { omitStopSequences: true });
+            return retryResponse.content;
           }
-
-          try {
-            const response = await fetch("http://127.0.0.1:1234/v1/chat/completions", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                model: "google/gemma-4-e4b",
-                messages: [
-                  { role: "system", content: systemPrompt },
-                  { role: "user", content: prompt },
-                ],
-                max_tokens: constraints.maxTokens ?? 131072,
-                temperature: temperatureOverride ?? 0.8,
-              }),
-            });
-
-            if (!response.ok) {
-              const errorBody = await response.text();
-              throw new Error(`LLM call failed: ${response.status} - ${errorBody}`);
-            }
-
-            const data = await response.json() as { choices: Array<{ message: { content: string } }> };
-            return data.choices[0]?.message?.content ?? "";
-          } catch (err: unknown) {
-            lastError = err instanceof Error ? err : new Error(String(err));
-            const message = lastError.message;
-            if (message.includes("Model reloaded") || message.includes("ECONNRESET") || message.includes("ECONNREFUSED")) {
-              console.warn(`[monarch] LLM model reload error, retrying (${attempt}/${maxRetries})...`);
-              continue;
-            }
-            throw lastError;
+        } catch (retryError) {
+          if (!String(retryError).toLowerCase().includes("empty response")) {
+            throw retryError;
           }
         }
 
-        throw lastError ?? new Error("LLM call failed after retries");
-      },
+        if (constraints.maxTokens === undefined) {
+          throw error;
+        }
+
+        this.config.logger?.warn("Adaptation text request still returned empty response; retrying with expanded token budget in non-stream mode.");
+        const compatibilityRetryResponse = await executeRequest(messages, constraints, {
+          omitStopSequences: true,
+          expandedMaxTokens: true,
+          forceNonStream: true,
+        });
+        return compatibilityRetryResponse.content;
+      }
+    };
+
+    return {
+      callLLM,
     };
   }
 
-  private async _writeNextChapterLocked(bookId: string, wordCount?: number, temperatureOverride?: number): Promise<ChapterPipelineResult> {
+  private resolveWriteMode(): WriteMode {
+    return this.config.writeMode ?? "standard";
+  }
+
+  private async _writeNextChapterStandardLocked(bookId: string, wordCount?: number, temperatureOverride?: number): Promise<ChapterPipelineResult> {
     await this.state.ensureControlDocuments(bookId);
     const book = await this.state.loadBookConfig(bookId);
     const bookDir = this.state.bookDir(bookId);
@@ -2589,12 +2724,17 @@ ${matrix}`,
     }
 
     const analyzer = new ChapterAnalyzerAgent(this.agentCtxFor("chapter-analyzer", bookId));
+    const resolvedLanguage = book.language ?? "zh";
+    // Don't pass default placeholder titles to ChapterAnalyzerAgent
+    // Let it generate a proper title based on chapter content
+    const isDefaultTitle = output.title === `Chapter ${chapterNumber}`
+      || output.title === `第${chapterNumber}章`;
     const analyzed = await analyzer.analyzeChapter({
       book,
       bookDir,
       chapterNumber,
       chapterContent: finalContent,
-      chapterTitle: output.title,
+      chapterTitle: isDefaultTitle ? undefined : output.title,
       chapterIntent: reducedControlInput?.chapterIntent,
       contextPackage: reducedControlInput?.contextPackage,
       ruleStack: reducedControlInput?.ruleStack,
