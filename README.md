@@ -8,9 +8,6 @@
   <a href="README.md">中文</a> | <a href="README.en.md">English</a> | <a href="README.ja.md">日本語</a>
 </p>
 
-<p align="center">
-<span style="font-size: 56px;">「纵使洗净一切无常无情并无意义。我也仍愿，欣然赴往那尘世之中。」</span>
-</p>
 
 ***
 
