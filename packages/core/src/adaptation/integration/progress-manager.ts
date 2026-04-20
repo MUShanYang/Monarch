@@ -37,7 +37,7 @@ export class AdaptationProgressManager {
       this.spinner.succeed(message);
       this.spinner = null;
     } else if (message) {
-      console.log(`[monarch] ${c("✓", brightGreen, bold)} ${message}`);
+      console.log(`[monarch] [OK] ${message}`);
     }
   }
 
@@ -46,7 +46,7 @@ export class AdaptationProgressManager {
       this.spinner.fail(message);
       this.spinner = null;
     } else if (message) {
-      console.log(`[monarch] ${c("✗", red, bold)} ${message}`);
+      console.log(`[monarch] [FAIL] ${message}`);
     }
   }
 

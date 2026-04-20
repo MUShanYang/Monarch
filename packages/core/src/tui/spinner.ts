@@ -17,15 +17,15 @@ export interface OperationTheme {
   readonly frames: ReadonlyArray<string>;
 }
 
-const WAVE_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-const PULSE_FRAMES = ["◜", "◠", "◝", "◞", "◡", "◟"];
-const DOTS_FRAMES = ["·  ", "·· ", "···", " ··", "  ·", "   "];
-const SCAN_FRAMES = ["▱▱▱▱▱", "▰▱▱▱▱", "▰▰▱▱▱", "▰▰▰▱▱", "▰▰▰▰▱", "▰▰▰▰▰", "▱▰▰▰▰", "▱▱▰▰▰", "▱▱▱▰▰", "▱▱▱▱▰"];
-const WRITE_FRAMES = ["✎", "✎·", "✎··", "✎···", "✎····", "✎···", "✎··", "✎·"];
+const WAVE_FRAMES = ["|", "/", "-", "\\", "|", "/", "-", "\\"];
+const PULSE_FRAMES = [".", "o", "O", "o", ".", " "];
+const DOTS_FRAMES = [".  ", ".. ", "...", " ..", "  .", "   "];
+const SCAN_FRAMES = ["[    ]", "[=   ]", "[==  ]", "[=== ]", "[====]", "[ ===]", "[  ==]", "[   =]"];
+const WRITE_FRAMES = [">", ">>", ">>>", ">>>>", ">>>>>", ">>>>", ">>>", ">>"];
 
 export const THEMES: Record<string, OperationTheme> = {
   thinking: {
-    icon: "◇",
+    icon: "*",
     color: cyan,
     brightColor: brightCyan,
     bg: bgCyan,
@@ -33,7 +33,7 @@ export const THEMES: Record<string, OperationTheme> = {
     frames: DOTS_FRAMES,
   },
   writing: {
-    icon: "✎",
+    icon: ">",
     color: magenta,
     brightColor: brightMagenta,
     bg: bgMagenta,
@@ -41,7 +41,7 @@ export const THEMES: Record<string, OperationTheme> = {
     frames: WRITE_FRAMES,
   },
   auditing: {
-    icon: "◉",
+    icon: "#",
     color: yellow,
     brightColor: brightYellow,
     bg: bgYellow,
@@ -49,7 +49,7 @@ export const THEMES: Record<string, OperationTheme> = {
     frames: SCAN_FRAMES,
   },
   revising: {
-    icon: "✂",
+    icon: "~",
     color: blue,
     brightColor: brightYellow,
     bg: bgBlue,
@@ -57,7 +57,7 @@ export const THEMES: Record<string, OperationTheme> = {
     frames: WAVE_FRAMES,
   },
   planning: {
-    icon: "◈",
+    icon: "+",
     color: cyan,
     brightColor: brightCyan,
     bg: bgCyan,
@@ -65,7 +65,7 @@ export const THEMES: Record<string, OperationTheme> = {
     frames: PULSE_FRAMES,
   },
   loading: {
-    icon: "◌",
+    icon: "o",
     color: gray,
     brightColor: white,
     bg: bgGray,
@@ -112,14 +112,14 @@ export class ThemedSpinner {
   succeed(message?: string): void {
     this.clear();
     if (message) {
-      console.log(`  ${c("✓", brightGreen, bold)} ${message}`);
+      console.log(`  ${c("[OK]", brightGreen, bold)} ${message}`);
     }
   }
 
   fail(message?: string): void {
     this.clear();
     if (message) {
-      console.log(`  ${c("✗", red, bold)} ${message}`);
+      console.log(`  ${c("[FAIL]", red, bold)} ${message}`);
     }
   }
 
