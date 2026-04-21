@@ -138,6 +138,7 @@ export function parseWriterOutput(
   };
 
   const chapterContent = extract("CHAPTER_CONTENT");
+  const rawHooks = extract("UPDATED_HOOKS") || defaultHooksPlaceholder(countingMode);
 
   return {
     chapterNumber,
@@ -150,7 +151,7 @@ export function parseWriterOutput(
     updatedLedger: genreProfile.numericalSystem
       ? (extract("UPDATED_LEDGER") || defaultLedgerPlaceholder(countingMode))
       : "",
-    updatedHooks: extract("UPDATED_HOOKS") || defaultHooksPlaceholder(countingMode),
+    updatedHooks: deduplicateHooks(rawHooks),
     chapterSummary: extract("CHAPTER_SUMMARY"),
     updatedSubplots: extract("UPDATED_SUBPLOTS"),
     updatedEmotionalArcs: extract("UPDATED_EMOTIONAL_ARCS"),
@@ -175,4 +176,61 @@ function defaultLedgerPlaceholder(countingMode: LengthCountingMode): string {
 
 function defaultHooksPlaceholder(countingMode: LengthCountingMode): string {
   return countingMode === "en_words" ? "(hooks pool not updated)" : "(伏笔池未更新)";
+}
+
+/**
+ * Deduplicate hooks in a markdown table by hook_id.
+ * Keeps the first occurrence of each hook_id and removes duplicates.
+ */
+function deduplicateHooks(hooksMarkdown: string): string {
+  if (!hooksMarkdown || hooksMarkdown.includes("未更新") || hooksMarkdown.includes("not updated")) {
+    return hooksMarkdown;
+  }
+
+  const lines = hooksMarkdown.split("\n");
+  const headerLines: string[] = [];
+  const dataLines: string[] = [];
+  let inTable = false;
+
+  // Separate header and data lines
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+
+    if (trimmed.startsWith("|") && trimmed.includes("hook_id")) {
+      inTable = true;
+      headerLines.push(line);
+      continue;
+    }
+
+    if (inTable && trimmed.startsWith("|") && trimmed.includes("---")) {
+      headerLines.push(line);
+      continue;
+    }
+
+    if (inTable && trimmed.startsWith("|")) {
+      dataLines.push(line);
+    } else if (!inTable) {
+      headerLines.push(line);
+    }
+  }
+
+  // Extract hook_id from each data line and deduplicate
+  const seenHookIds = new Set<string>();
+  const uniqueDataLines: string[] = [];
+
+  for (const line of dataLines) {
+    const cells = line.split("|").map((cell) => cell.trim()).filter(Boolean);
+    if (cells.length === 0) continue;
+
+    const hookId = cells[0]; // First column is hook_id
+    if (!hookId || seenHookIds.has(hookId)) {
+      continue; // Skip duplicate
+    }
+
+    seenHookIds.add(hookId);
+    uniqueDataLines.push(line);
+  }
+
+  return [...headerLines, ...uniqueDataLines].join("\n");
 }
