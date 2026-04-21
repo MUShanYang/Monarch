@@ -15,6 +15,7 @@ import type {
   ToolCall as PiToolCall,
 } from "@mariozechner/pi-ai";
 import { resolveServicePreset } from "./service-presets.js";
+import { checkModelHealthBeforeRetry } from "./model-health-checker.js";
 
 // === Streaming Monitor Types ===
 
@@ -309,7 +310,7 @@ async function sleep(ms: number): Promise<void> {
 async function withRetry<T>(
   fn: () => Promise<T>,
   config: RetryConfig = DEFAULT_RETRY_CONFIG,
-  context?: { readonly operation?: string; readonly model?: string },
+  context?: { readonly operation?: string; readonly model?: string; readonly baseUrl?: string; readonly service?: string },
 ): Promise<T> {
   let lastError: unknown;
 
@@ -332,6 +333,11 @@ async function withRetry<T>(
           (context?.model ? ` [${context.model}]` : "")
         );
         throw error;
+      }
+
+      // 在第一次重试前检查模型健康状态
+      if (attempt === 0 && context?.baseUrl) {
+        await checkModelHealthBeforeRetry(error, context.baseUrl, context.service);
       }
 
       // 计算退避延迟
@@ -916,7 +922,12 @@ export async function chatCompletion(
       }
     },
     retryConfig,
-    { operation: "chatCompletion", model },
+    {
+      operation: "chatCompletion",
+      model,
+      baseUrl: client._piModel?.baseUrl,
+      service: client.service,
+    },
   );
 }
 

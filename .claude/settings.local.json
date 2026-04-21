@@ -5,7 +5,11 @@
       "Bash(monarch write *)",
       "Bash(tee adaptation-write-next-test.log)",
       "Bash(pnpm typecheck *)",
-      "Bash(git add *)"
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git push *)",
+      "Read(//c/Users/Administrator/**)",
+      "Bash(pnpm -r exec ls dist)"
     ]
   }
 }
