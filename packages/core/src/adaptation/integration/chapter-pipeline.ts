@@ -55,6 +55,36 @@ import {
   type PipelineContext,
 } from "../pipeline/adaptation-orchestrator.js";
 import { AdaptationProgressManager } from "./progress-manager.js";
+import {
+  SubtextEngine,
+  createSubtextEngine,
+  type SubtextAnalysisResult,
+} from "../generation/subtext-engine.js";
+import {
+  EmotionalDebtManager,
+  createEmotionalDebtManager,
+  type DebtAnalysisResult,
+} from "../character/emotional-debt.js";
+import {
+  CharacterUnconscious,
+  createCharacterUnconscious,
+  type UnconsciousAnalysis,
+} from "../character/unconscious.js";
+import {
+  VoiceFingerprintAnalyzer,
+  createVoiceFingerprintAnalyzer,
+  type VoiceComparisonResult,
+} from "../audit/voice-fingerprint.js";
+import {
+  TimelineExplorer,
+  createTimelineExplorer,
+  type TimelineAnalysisResult,
+} from "../narrative/timeline-explorer.js";
+import {
+  DialogueArena,
+  createDialogueArena,
+  type DialogueValidationResult,
+} from "../simulation/dialogue-arena.js";
 
 export interface ChapterPipelineLLMInterface extends BeatOrchestratorLLMInterface {
   callLLM(
@@ -132,6 +162,9 @@ export const BeatGenerationStepSchema = z.object({
   adversarialResult: z.any().optional(),
   readerResult: z.any().optional(),
   knowledgeResult: z.any().optional(),
+  subtextAnalysis: z.any().optional(),
+  voiceCheck: z.any().optional(),
+  dialogueValidation: z.any().optional(),
   events: z.array(z.any()).default([]),
   retryCount: z.number().int().min(0).default(0),
 });
@@ -160,6 +193,21 @@ export const ChapterGenerationResultSchema = z.object({
     subplotBoard: z.string(),
     chapterSummaries: z.string(),
   }).optional(),
+  emotionalDebtAnalysis: z.record(z.any()).optional(),
+  unconsciousAnalysis: z.record(z.any()).optional(),
+  timelineAnalysis: z.any().optional(),
+  subtextSummary: z.object({
+    totalEntries: z.number().int().default(0),
+    byLayer: z.record(z.number()).default({}),
+  }).optional(),
+  voiceConsistency: z.object({
+    averageSimilarity: z.number().min(0).max(1).optional(),
+    inconsistentBeats: z.number().int().default(0),
+  }).optional(),
+  dialogueIssues: z.array(z.object({
+    beatIndex: z.number().int(),
+    violations: z.array(z.any()),
+  })).default([]),
   motifsReferenced: z.array(z.string()).default([]),
   completed: z.boolean().default(false),
   failureReason: z.string().optional(),
@@ -236,6 +284,12 @@ export class ChapterPipelineAdapter {
   private readonly knowledgeChecker = new KnowledgeBoundaryChecker();
   private readerSimulator: ReaderSimulator | null = null;
   private adversarialRefiner: AdversarialRefiner | null = null;
+  private readonly subtextEngine = createSubtextEngine();
+  private readonly emotionalDebtManager = createEmotionalDebtManager();
+  private readonly characterUnconscious = createCharacterUnconscious();
+  private voiceFingerprintAnalyzer: VoiceFingerprintAnalyzer | null = null;
+  private readonly timelineExplorer = createTimelineExplorer();
+  private dialogueArena: DialogueArena | null = null;
   private lastSelection: BeatSelectionResult | null = null;
   private lastWorkflowContext: PipelineContext | null = null;
   private currentProgress: AdaptationProgressManager | null = null;
@@ -285,6 +339,7 @@ export class ChapterPipelineAdapter {
       events: [],
       motifsReferenced: [],
       auditSummary: { totalIssues: 0, errorCount: 0, warningCount: 0 },
+      dialogueIssues: [],
       completed: false,
     };
 
@@ -398,6 +453,97 @@ export class ChapterPipelineAdapter {
       this.rebuildCuriosityLedger();
       result.curiosityCheck = this.curiosityLedger.checkCuriosities(config.chapterNumber);
       result.driftReport = this.buildDriftReport(config.chapterNumber, result.chapterSummary as ChapterSummary);
+
+      // Emotional Debt Analysis
+      const emotionalDebtAnalysis: Record<string, DebtAnalysisResult> = {};
+      if (this.currentSnapshot) {
+        for (const character of this.currentSnapshot.entities.characters) {
+          const analysis = this.emotionalDebtManager.analyzeCharacterDebts(character.id);
+          if (analysis.urgentDebts.length > 0 || Math.abs(analysis.netBalance) > 0.5) {
+            emotionalDebtAnalysis[character.id] = analysis;
+          }
+        }
+        this.emotionalDebtManager.processChapterAdvancement(config.chapterNumber);
+      }
+      result.emotionalDebtAnalysis = emotionalDebtAnalysis;
+
+      // Unconscious Content Analysis
+      const unconsciousAnalysis: Record<string, UnconsciousAnalysis> = {};
+      if (this.currentSnapshot) {
+        for (const character of this.currentSnapshot.entities.characters) {
+          const analysis = this.characterUnconscious.analyzeCharacter(character.id);
+          if (analysis.activeContents.length > 0) {
+            unconsciousAnalysis[character.id] = analysis;
+          }
+        }
+        this.characterUnconscious.processChapterAdvancement(config.chapterNumber);
+      }
+      result.unconsciousAnalysis = unconsciousAnalysis;
+
+      // Timeline Analysis
+      if (this.currentSnapshot) {
+        for (const step of result.beats) {
+          if (step.beat) {
+            const beat = step.beat as Beat;
+            this.timelineExplorer.addEvent({
+              timestamp: Date.now(),
+              chapter: config.chapterNumber,
+              description: step.selectedProse?.slice(0, 100) ?? "",
+              characters: beat.dna.who.map(c => c.id),
+              location: beat.dna.where,
+              eventType: step.beatType as any,
+              significance: beat.tensionLevel,
+              relatedEvents: [],
+              isFlashback: false,
+              isFlashforward: false,
+            });
+          }
+        }
+        result.timelineAnalysis = this.timelineExplorer.analyzeTimeline();
+      }
+
+      // Voice Fingerprint Extraction (first chapter only)
+      if (config.chapterNumber === 1 && !this.voiceFingerprintAnalyzer) {
+        const chapterContent = result.beats.map(s => s.selectedProse).filter(Boolean).join("\n\n");
+        this.voiceFingerprintAnalyzer = createVoiceFingerprintAnalyzer();
+        this.voiceFingerprintAnalyzer.extractFingerprint(
+          chapterContent,
+          "reference",
+          "reference_text",
+        );
+      }
+
+      // Subtext Summary
+      const activeSubtexts = this.subtextEngine.getActiveEntries();
+      result.subtextSummary = {
+        totalEntries: activeSubtexts.length,
+        byLayer: {
+          literal: activeSubtexts.filter(e => e.layer === "literal").length,
+          implied: activeSubtexts.filter(e => e.layer === "implied").length,
+          unconscious: activeSubtexts.filter(e => e.layer === "unconscious").length,
+        },
+      };
+
+      // Voice Consistency Summary
+      const voiceChecks = result.beats
+        .map(b => b.voiceCheck)
+        .filter((v): v is VoiceComparisonResult => Boolean(v));
+      if (voiceChecks.length > 0) {
+        result.voiceConsistency = {
+          averageSimilarity: voiceChecks.reduce((sum, v) => sum + v.similarity, 0) / voiceChecks.length,
+          inconsistentBeats: voiceChecks.filter(v => !v.isConsistent).length,
+        };
+      }
+
+      // Dialogue Issues Summary
+      result.dialogueIssues = result.beats
+        .map((b, i) => ({ beatIndex: i, validation: b.dialogueValidation }))
+        .filter(({ validation }) => validation && !validation.isValid)
+        .map(({ beatIndex, validation }) => ({
+          beatIndex,
+          violations: validation!.violations,
+        }));
+
       result.motifsReferenced = this.motifIndexer.getAllMotifs();
       result.completed = true;
 
@@ -508,6 +654,88 @@ export class ChapterPipelineAdapter {
       console.log(`  [monarch] 知识边界：检测到越界`);
     }
 
+    // Subtext Analysis (for dialogue beats)
+    let subtextAnalysis: SubtextAnalysisResult | undefined;
+    if (params.beatType === "dialogue" && processed.prose) {
+      subtextAnalysis = this.subtextEngine.analyzeText(
+        processed.prose,
+        params.focusCharacterIds[0],
+      );
+
+      for (const entry of subtextAnalysis.subtextEntries) {
+        this.subtextEngine.plantSubtext(
+          entry.layer,
+          entry.surfaceText,
+          entry.subtextMeaning,
+          entry.characterId,
+          params.chapterNumber,
+        );
+      }
+
+      if (subtextAnalysis.subtextEntries.length > 0) {
+        console.log(`  [monarch] 潜台词：${subtextAnalysis.subtextEntries.length} 个条目`);
+      }
+    }
+
+    // Voice Consistency Check
+    let voiceCheck: VoiceComparisonResult | undefined;
+    if (this.voiceFingerprintAnalyzer && processed.prose) {
+      voiceCheck = this.voiceFingerprintAnalyzer.compareWithFingerprint(
+        processed.prose,
+        "reference",
+      );
+
+      if (!voiceCheck.isConsistent) {
+        console.log(`  [monarch] 声音指纹：相似度 ${(voiceCheck.similarity * 100).toFixed(1)}%`);
+      }
+    }
+
+    // Dialogue Arena Validation (for dialogue beats)
+    let dialogueValidation: DialogueValidationResult | undefined;
+    if (params.beatType === "dialogue" && processed.prose && this.currentSnapshot) {
+      const arena = this.getDialogueArena();
+      const participants = params.focusCharacterIds.map(id => {
+        const char = this.currentSnapshot!.entities.characters.find(c => c.id === id);
+        return {
+          characterId: id,
+          name: char?.name ?? id,
+          knowledgeBoundary: {
+            characterId: id,
+            knows: char?.knowledge ?? [],
+            suspects: [],
+            doesNotKnow: char?.doesNotKnow ?? [],
+          },
+          emotionalState: {},
+          goals: [],
+          secrets: [],
+        };
+      });
+
+      const scene = arena.createScene(
+        params.primaryLocationId || "unknown",
+        participants,
+      );
+
+      const lines = processed.prose.split(/\n/).filter(l => l.trim());
+      for (const line of lines) {
+        const match = line.match(/^(.+?)[:：](.+)$/);
+        if (match) {
+          const speaker = match[1]!.trim();
+          const text = match[2]!.trim();
+          const speakerId = participants.find(p => p.name === speaker)?.characterId;
+          if (speakerId) {
+            arena.addLine(speakerId, text);
+          }
+        }
+      }
+
+      dialogueValidation = arena.validateDialogue();
+
+      if (dialogueValidation && !dialogueValidation.isValid) {
+        console.log(`  [monarch] 对话验证：${dialogueValidation.violations.length} 个违规`);
+      }
+    }
+
     if (processed.events.length > 0) {
       const updated = this.hooks.applyEvents(processed.events, params.chapterNumber);
       if (updated) {
@@ -529,6 +757,9 @@ export class ChapterPipelineAdapter {
       adversarialResult: processed.adversarialResult,
       readerResult: processed.readerResult,
       knowledgeResult: processed.knowledgeResult,
+      subtextAnalysis,
+      voiceCheck,
+      dialogueValidation,
       events: processed.events,
       retryCount: processed.beat.retryCount,
     });
@@ -760,6 +991,18 @@ export class ChapterPipelineAdapter {
     });
 
     return this.adversarialRefiner;
+  }
+
+  private getDialogueArena(): DialogueArena {
+    if (!this.dialogueArena) {
+      this.dialogueArena = createDialogueArena({
+        maxLines: 50,
+        enableKnowledgeCheck: true,
+        enableEmotionalTracking: true,
+        strictMode: true,
+      });
+    }
+    return this.dialogueArena;
   }
 
   private buildKnowledgeBoundaries(focusCharacterIds: string[], dna: NarrativeDNA): KnowledgeBoundary[] {

@@ -44,6 +44,9 @@ export const CharacterSnapshotSchema = z.object({
   handState: HandStateSchema.default("empty"),
   heldItems: z.array(z.string()).default([]),
   emotionalDebts: z.array(EmotionalDebtSchema).default([]),
+  unconsciousContents: z.array(z.any()).default([]),
+  subtextHistory: z.array(z.any()).default([]),
+  voiceProfileId: z.string().optional(),
   knowledge: z.array(z.string()).default([]),
   doesNotKnow: z.array(z.string()).default([]),
   relationships: z.record(z.string(), z.string()).default({}),
@@ -169,6 +172,8 @@ export const ChroniclesSchema = z.object({
   summaries: z.array(ChapterSummarySchema).default([]),
   eventLog: z.array(EventLogEntrySchema).default([]),
   timeline: z.record(z.string(), z.array(z.string())).default({}),
+  subtextRegistry: z.array(z.any()).default([]),
+  timelineEvents: z.array(z.any()).default([]),
 });
 export type Chronicles = z.infer<typeof ChroniclesSchema>;
 
@@ -307,6 +312,34 @@ export const StateEventSchema = z.discriminatedUnion("action", [
     action: z.literal("KNOWLEDGE_GAIN"),
     character: z.string().min(1),
     fact: z.string().min(1),
+  }),
+  z.object({
+    action: z.literal("ADD_UNCONSCIOUS_CONTENT"),
+    characterId: z.string().min(1),
+    content: z.string().min(1),
+    type: z.enum(["trauma", "desire", "fear", "memory", "symbol", "dream"]),
+    intensity: z.number().min(0).max(1).optional(),
+  }),
+  z.object({
+    action: z.literal("MANIFEST_UNCONSCIOUS"),
+    characterId: z.string().min(1),
+    contentId: z.string().min(1),
+    manifestation: z.string().min(1),
+  }),
+  z.object({
+    action: z.literal("PLANT_SUBTEXT"),
+    layer: z.enum(["literal", "implied", "unconscious"]),
+    surfaceText: z.string().min(1),
+    subtextMeaning: z.string().min(1),
+    characterId: z.string().min(1),
+  }),
+  z.object({
+    action: z.literal("ADD_TIMELINE_EVENT"),
+    timestamp: z.union([z.number(), z.string()]),
+    description: z.string().min(1),
+    characters: z.array(z.string()).optional(),
+    location: z.string().optional(),
+    eventType: z.string(),
   }),
   z.object({
     action: z.literal("CLOSE_HOOK"),

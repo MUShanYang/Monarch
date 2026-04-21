@@ -190,6 +190,14 @@ export class EventSourcer {
           return this.applyMotifReference(snapshot, event, chapter);
         case "KNOWLEDGE_GAIN":
           return this.applyKnowledgeGain(snapshot, event, chapter);
+        case "ADD_UNCONSCIOUS_CONTENT":
+          return this.applyAddUnconsciousContent(snapshot, event, chapter);
+        case "MANIFEST_UNCONSCIOUS":
+          return this.applyManifestUnconscious(snapshot, event, chapter);
+        case "PLANT_SUBTEXT":
+          return this.applyPlantSubtext(snapshot, event, chapter);
+        case "ADD_TIMELINE_EVENT":
+          return this.applyAddTimelineEvent(snapshot, event, chapter);
         case "CLOSE_HOOK":
           return this.applyCloseHook(snapshot, event, chapter);
         default:
@@ -895,6 +903,155 @@ export class EventSourcer {
     return entities.characters.find((c) => c.id === characterId || c.name === characterId || c.aliases.includes(characterId));
   }
 
+  private applyAddUnconsciousContent(
+    snapshot: EntityStateSnapshot,
+    event: Extract<StateEvent, { action: "ADD_UNCONSCIOUS_CONTENT" }>,
+    chapter: number,
+  ): ApplyEventResult & { snapshot?: EntityStateSnapshot } {
+    const character = this.findCharacter(snapshot.entities, event.characterId);
+    if (!character) {
+      return { success: false, error: `Character not found: ${event.characterId}` };
+    }
+
+    const newContent = {
+      id: `uc-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+      characterId: event.characterId,
+      content: event.content,
+      type: event.type,
+      intensity: event.intensity ?? 0.5,
+      plantedChapter: chapter,
+      manifestationCount: 0,
+      relatedMotifs: [],
+      triggers: [],
+      isRepressed: true,
+    };
+
+    const updatedCharacter: CharacterSnapshot = {
+      ...character,
+      unconsciousContents: [...character.unconsciousContents, newContent],
+    };
+
+    return {
+      success: true,
+      snapshot: this.updateCharacterInSnapshot(snapshot, updatedCharacter),
+    };
+  }
+
+  private applyManifestUnconscious(
+    snapshot: EntityStateSnapshot,
+    event: Extract<StateEvent, { action: "MANIFEST_UNCONSCIOUS" }>,
+    chapter: number,
+  ): ApplyEventResult & { snapshot?: EntityStateSnapshot } {
+    const character = this.findCharacter(snapshot.entities, event.characterId);
+    if (!character) {
+      return { success: false, error: `Character not found: ${event.characterId}` };
+    }
+
+    const contentIndex = character.unconsciousContents.findIndex((c: any) => c.id === event.contentId);
+    if (contentIndex < 0) {
+      return { success: false, error: `Unconscious content not found: ${event.contentId}` };
+    }
+
+    const updatedContents = [...character.unconsciousContents];
+    const content = updatedContents[contentIndex];
+    updatedContents[contentIndex] = {
+      ...content,
+      manifestationCount: (content.manifestationCount || 0) + 1,
+      lastManifestedChapter: chapter,
+      isRepressed: false,
+    };
+
+    const updatedCharacter: CharacterSnapshot = {
+      ...character,
+      unconsciousContents: updatedContents,
+    };
+
+    return {
+      success: true,
+      snapshot: this.updateCharacterInSnapshot(snapshot, updatedCharacter),
+    };
+  }
+
+  private applyPlantSubtext(
+    snapshot: EntityStateSnapshot,
+    event: Extract<StateEvent, { action: "PLANT_SUBTEXT" }>,
+    chapter: number,
+  ): ApplyEventResult & { snapshot?: EntityStateSnapshot } {
+    const character = this.findCharacter(snapshot.entities, event.characterId);
+    if (!character) {
+      return { success: false, error: `Character not found: ${event.characterId}` };
+    }
+
+    const newSubtext = {
+      id: `st-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+      layer: event.layer,
+      surfaceText: event.surfaceText,
+      subtextMeaning: event.subtextMeaning,
+      characterId: event.characterId,
+      plantedChapter: chapter,
+      status: "planted",
+    };
+
+    const updatedCharacter: CharacterSnapshot = {
+      ...character,
+      subtextHistory: [...character.subtextHistory, newSubtext],
+    };
+
+    const updatedChronicles: Chronicles = {
+      ...snapshot.chronicles,
+      subtextRegistry: [...snapshot.chronicles.subtextRegistry, newSubtext],
+    };
+
+    return {
+      success: true,
+      snapshot: {
+        ...snapshot,
+        entities: this.updateCharacterInEntitiesDb(snapshot.entities, updatedCharacter),
+        chronicles: updatedChronicles,
+      },
+    };
+  }
+
+  private applyAddTimelineEvent(
+    snapshot: EntityStateSnapshot,
+    event: Extract<StateEvent, { action: "ADD_TIMELINE_EVENT" }>,
+    chapter: number,
+  ): ApplyEventResult & { snapshot?: EntityStateSnapshot } {
+    const newEvent = {
+      id: `te-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+      timestamp: event.timestamp,
+      chapter,
+      description: event.description,
+      characters: event.characters ?? [],
+      location: event.location,
+      eventType: event.eventType,
+      significance: 5,
+      relatedEvents: [],
+      isFlashback: false,
+      isFlashforward: false,
+    };
+
+    const updatedChronicles: Chronicles = {
+      ...snapshot.chronicles,
+      timelineEvents: [...snapshot.chronicles.timelineEvents, newEvent],
+    };
+
+    return {
+      success: true,
+      snapshot: { ...snapshot, chronicles: updatedChronicles },
+    };
+  }
+
+  private updateCharacterInEntitiesDb(entities: EntitiesDb, character: CharacterSnapshot): EntitiesDb {
+    const index = entities.characters.findIndex((c) => c.id === character.id);
+    if (index < 0) {
+      return entities;
+    }
+    const updatedCharacters = [...entities.characters];
+    updatedCharacters[index] = character;
+    return { ...entities, characters: updatedCharacters };
+  }
+
   private updateCharacterInSnapshot(snapshot: EntityStateSnapshot, updatedCharacter: CharacterSnapshot): EntityStateSnapshot {
     const index = snapshot.entities.characters.findIndex((c) => c.id === updatedCharacter.id);
     if (index < 0) {
@@ -986,6 +1143,8 @@ export class EventSourcer {
       summaries: [],
       eventLog: [],
       timeline: {},
+      subtextRegistry: [],
+      timelineEvents: [],
     };
   }
 }

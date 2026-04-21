@@ -17,6 +17,8 @@ function createCharacter(overrides: Partial<CharacterSnapshot> = {}): CharacterS
     handState: "empty",
     heldItems: [],
     emotionalDebts: [],
+    unconsciousContents: [],
+    subtextHistory: [],
     knowledge: [],
     doesNotKnow: [],
     relationships: {},

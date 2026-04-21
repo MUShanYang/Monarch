@@ -134,6 +134,8 @@ describe("adaptation orchestrator graceful degradation", () => {
           summaries: [],
           eventLog: [],
           timeline: {},
+          subtextRegistry: [],
+          timelineEvents: [],
         },
       },
       generatedBeats: [],
