@@ -3,7 +3,9 @@
     "allow": [
       "Bash(pnpm build *)",
       "Bash(monarch write *)",
-      "Bash(tee adaptation-write-next-test.log)"
+      "Bash(tee adaptation-write-next-test.log)",
+      "Bash(pnpm typecheck *)",
+      "Bash(git add *)"
     ]
   }
 }

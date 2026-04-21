@@ -26,6 +26,10 @@ describe("LLM Retry Mechanism", () => {
       model: "test-model",
       temperature: 0.7,
       maxTokens: 1000,
+      apiFormat: "chat",
+      stream: true,
+      configSource: "env",
+      thinkingBudget: 0,
     };
     return createLLMClient(config);
   };

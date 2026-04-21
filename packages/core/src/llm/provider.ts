@@ -291,7 +291,9 @@ function isRetryableError(error: unknown): boolean {
     msg.includes("ENOTFOUND") ||
     msg.includes("fetch failed") ||
     msg.includes("ETIMEDOUT") ||
-    msg.includes("network")
+    msg.includes("network") ||
+    msg.includes("Chapter generation failed") || // 章节生成失败
+    msg.includes("无法连接到 API 服务") // API 连接失败
   );
 }
 
