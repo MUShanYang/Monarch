@@ -34,8 +34,22 @@
 ## 架构概览
 
 <p align="center">
-  <img src="assets/monarch v2.svg" width="100%" alt="Monarch Architecture">
+  <img src="assets/monarch-optimized.svg" width="100%" alt="Monarch Optimized Architecture">
 </p>
+
+### 最新优化（v2.1）
+
+- **Token 预算优化**: environment +50%, interiority +47%，减少空响应和重试
+- **动态字数阈值**: 基于目标字数的递减比例（≤2000字用80%，>2000字用70%）
+- **实时进度显示**: 显示对抗精炼轮数和读者模拟通过数
+- **渐变文字动画**: 24-bit RGB 真彩色，逐字符显现效果
+
+<details>
+<summary>查看完整架构图</summary>
+<p align="center">
+  <img src="assets/monarch v2.svg" width="100%" alt="Monarch Full Architecture">
+</p>
+</details>
 
 ### Adaptation Pipeline 三层架构
 

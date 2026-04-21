@@ -1,0 +1,177 @@
+<svg width="800" height="900" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M2 1L8 5L2 9" fill="none" stroke="#737266" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:rgb(236,72,153);stop-opacity:1"/>
+      <stop offset="100%" style="stop-color:rgb(251,146,60);stop-opacity:1"/>
+    </linearGradient>
+    <linearGradient id="grad2" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:rgb(56,189,248);stop-opacity:1"/>
+      <stop offset="100%" style="stop-color:rgb(139,92,246);stop-opacity:1"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="800" height="900" fill="#fafaf9"/>
+
+  <!-- Title -->
+  <text x="400" y="30" font-family="sans-serif" font-size="20" font-weight="bold" fill="#1c1917" text-anchor="middle">
+    Monarch 写作管线架构（v2.1 优化版）
+  </text>
+
+  <!-- Data Infrastructure -->
+  <rect x="50" y="60" width="700" height="80" rx="8" fill="#e1f5ee" stroke="#0f6e56" stroke-width="1"/>
+  <text x="400" y="85" font-family="sans-serif" font-size="14" font-weight="600" fill="#085041" text-anchor="middle">
+    数据基础设施（真相来源）
+  </text>
+  <text x="400" y="110" font-family="sans-serif" font-size="12" fill="#0f6e56" text-anchor="middle">
+    entities_db.json · narrative_ledger.json · chronicles.json · motif_index.json
+  </text>
+  <text x="400" y="128" font-family="sans-serif" font-size="11" fill="#0f6e56" text-anchor="middle">
+    系统只读写 JSON · .md 文件仅供人类查阅
+  </text>
+
+  <line x1="400" y1="140" x2="400" y2="170" stroke="#737266" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- Intent Compiler -->
+  <rect x="150" y="170" width="500" height="60" rx="8" fill="#eeedfe" stroke="#534ab7" stroke-width="1"/>
+  <text x="400" y="195" font-family="sans-serif" font-size="14" font-weight="600" fill="#3c3489" text-anchor="middle">
+    意图编译器 + DNA 压缩（≤250 tokens）
+  </text>
+  <text x="400" y="215" font-family="sans-serif" font-size="11" fill="#534ab7" text-anchor="middle">
+    注意力权重 · 母题回声 · 物理状态约束 · 感官闪回 · 动态禁词注入
+  </text>
+
+  <line x1="400" y1="230" x2="400" y2="260" stroke="#737266" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- NEW: Token Budget Optimization -->
+  <rect x="100" y="260" width="600" height="70" rx="8" fill="#fef3c7" stroke="#d97706" stroke-width="2"/>
+  <text x="400" y="285" font-family="sans-serif" font-size="14" font-weight="700" fill="#92400e" text-anchor="middle">
+    ✨ Token 预算优化（NEW）
+  </text>
+  <text x="400" y="305" font-family="sans-serif" font-size="12" fill="#b45309" text-anchor="middle">
+    environment: 120 → 180 (+50%) · interiority: 150 → 220 (+47%)
+  </text>
+  <text x="400" y="322" font-family="sans-serif" font-size="11" fill="#b45309" text-anchor="middle">
+    减少空响应 · 降低重试次数 · 提升生成速度 30-40%
+  </text>
+
+  <line x1="400" y1="330" x2="400" y2="360" stroke="#737266" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- 3x3 Speculative Generation -->
+  <rect x="100" y="360" width="600" height="70" rx="8" fill="#feebc8" stroke="#854b0b" stroke-width="1"/>
+  <text x="400" y="385" font-family="sans-serif" font-size="14" font-weight="600" fill="#633806" text-anchor="middle">
+    3×3 投机生成（3批串行 · 每批3路并行）
+  </text>
+  <text x="400" y="405" font-family="sans-serif" font-size="11" fill="#854b0b" text-anchor="middle">
+    语义（简约/内心/感官）× 句法（意合/形合/名词性）
+  </text>
+  <text x="400" y="422" font-family="sans-serif" font-size="11" fill="#854b0b" text-anchor="middle">
+    9候选评分选优 · 移除过激进 stop sequences
+  </text>
+
+  <line x1="400" y1="430" x2="400" y2="460" stroke="#737266" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- Adversarial Refinement -->
+  <rect x="100" y="460" width="600" height="60" rx="8" fill="#fee2e2" stroke="#991b1b" stroke-width="1"/>
+  <text x="400" y="485" font-family="sans-serif" font-size="14" font-weight="600" fill="#7f1d1d" text-anchor="middle">
+    对抗精炼（Writer/Attacker/Referee · 最多6轮）
+  </text>
+  <text x="400" y="505" font-family="sans-serif" font-size="11" fill="#991b1b" text-anchor="middle">
+    实时显示精炼轮数 · 优雅降级策略
+  </text>
+
+  <line x1="400" y1="520" x2="400" y2="550" stroke="#737266" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- Reader Simulation -->
+  <rect x="100" y="550" width="600" height="60" rx="8" fill="#dbeafe" stroke="#1e40af" stroke-width="1"/>
+  <text x="400" y="575" font-family="sans-serif" font-size="14" font-weight="600" fill="#1e3a8a" text-anchor="middle">
+    三读者模拟（Impatient/Suspicious/Visual 并行）
+  </text>
+  <text x="400" y="595" font-family="sans-serif" font-size="11" fill="#1e40af" text-anchor="middle">
+    实时显示通过数（X/3） · 多数通过即可继续
+  </text>
+
+  <line x1="400" y1="610" x2="400" y2="640" stroke="#737266" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- Cascade Audit -->
+  <rect x="100" y="640" width="600" height="70" rx="8" fill="#fecaca" stroke="#991b1b" stroke-width="1"/>
+  <text x="400" y="665" font-family="sans-serif" font-size="14" font-weight="600" fill="#7f1d1d" text-anchor="middle">
+    级联审计（快速失败）
+  </text>
+  <text x="400" y="685" font-family="sans-serif" font-size="11" fill="#991b1b" text-anchor="middle">
+    L1规则 → L2结构 → L3声音 → L4连续性
+  </text>
+  <text x="400" y="702" font-family="sans-serif" font-size="11" fill="#991b1b" text-anchor="middle">
+    优雅降级：FULL → REDUCED → MINIMAL → SCAFFOLD
+  </text>
+
+  <line x1="400" y1="710" x2="400" y2="740" stroke="#737266" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- NEW: Dynamic Word Threshold -->
+  <rect x="100" y="740" width="600" height="70" rx="8" fill="#fef3c7" stroke="#d97706" stroke-width="2"/>
+  <text x="400" y="765" font-family="sans-serif" font-size="14" font-weight="700" fill="#92400e" text-anchor="middle">
+    ✨ 动态字数阈值（NEW）
+  </text>
+  <text x="400" y="785" font-family="sans-serif" font-size="12" fill="#b45309" text-anchor="middle">
+    ≤2000字：80% 阈值 · >2000字：70% 阈值
+  </text>
+  <text x="400" y="802" font-family="sans-serif" font-size="11" fill="#b45309" text-anchor="middle">
+    防止提前退出 · 保证章节达到目标字数
+  </text>
+
+  <line x1="400" y1="810" x2="400" y2="840" stroke="#737266" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- Output -->
+  <rect x="150" y="840" width="500" height="50" rx="8" fill="#e1f5ee" stroke="#0f6e56" stroke-width="1"/>
+  <text x="400" y="870" font-family="sans-serif" font-size="14" font-weight="600" fill="#085041" text-anchor="middle">
+    输出章节 + 状态更新 + 真相文件生成
+  </text>
+
+  <!-- Side annotations -->
+  <rect x="20" y="260" width="70" height="70" rx="6" fill="#fef3c7" stroke="#d97706" stroke-width="1"/>
+  <text x="55" y="285" font-family="sans-serif" font-size="11" font-weight="600" fill="#92400e" text-anchor="middle">
+    性能
+  </text>
+  <text x="55" y="302" font-family="sans-serif" font-size="10" fill="#b45309" text-anchor="middle">
+    节拍生成
+  </text>
+  <text x="55" y="317" font-family="sans-serif" font-size="10" fill="#b45309" text-anchor="middle">
+    加速
+  </text>
+
+  <rect x="710" y="260" width="70" height="70" rx="6" fill="#fef3c7" stroke="#d97706" stroke-width="1"/>
+  <text x="745" y="285" font-family="sans-serif" font-size="11" font-weight="600" fill="#92400e" text-anchor="middle">
+    质量
+  </text>
+  <text x="745" y="302" font-family="sans-serif" font-size="10" fill="#b45309" text-anchor="middle">
+    减少
+  </text>
+  <text x="745" y="317" font-family="sans-serif" font-size="10" fill="#b45309" text-anchor="middle">
+    空响应
+  </text>
+
+  <rect x="20" y="740" width="70" height="70" rx="6" fill="#fef3c7" stroke="#d97706" stroke-width="1"/>
+  <text x="55" y="765" font-family="sans-serif" font-size="11" font-weight="600" fill="#92400e" text-anchor="middle">
+    字数
+  </text>
+  <text x="55" y="782" font-family="sans-serif" font-size="10" fill="#b45309" text-anchor="middle">
+    控制
+  </text>
+  <text x="55" y="797" font-family="sans-serif" font-size="10" fill="#b45309" text-anchor="middle">
+    优化
+  </text>
+
+  <rect x="710" y="740" width="70" height="70" rx="6" fill="#fef3c7" stroke="#d97706" stroke-width="1"/>
+  <text x="745" y="765" font-family="sans-serif" font-size="11" font-weight="600" fill="#92400e" text-anchor="middle">
+    灵活
+  </text>
+  <text x="745" y="782" font-family="sans-serif" font-size="10" fill="#b45309" text-anchor="middle">
+    退出
+  </text>
+  <text x="745" y="797" font-family="sans-serif" font-size="10" fill="#b45309" text-anchor="middle">
+    策略
+  </text>
+</svg>
