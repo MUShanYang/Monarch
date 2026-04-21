@@ -206,23 +206,13 @@ export class BeatOrchestrator {
         const issues = postResult.auditResult?.issues ?? [];
         const errorIssues = issues.filter((i: any) => i.severity === "error");
         const warnIssues = issues.filter((i: any) => i.severity === "warning");
-        if (!passed && errorIssues.length > 0) {
+
+        // 只在非 TTY 模式或有严重错误时输出日志
+        if (!progress && errorIssues.length > 0) {
           const first3 = errorIssues.slice(0, 3).map((i: any) => `[${i.code}] ${i.message}`).join("；");
-          if (progress) {
-            progress.log(`候选 ${config.variantId}：审计${passed}，${errorIssues.length} 个错误`);
-          } else {
-            console.log(
-              `[monarch] 候选 ${config.variantId}/${config.syntacticVariantId ?? "none"}：审计${passed}，${errorIssues.length} 个错误，${warnIssues.length} 个警告。前 3 个错误：${first3}`
-            );
-          }
-        } else {
-          if (progress) {
-            progress.log(`候选 ${config.variantId}：审计${passed}`);
-          } else {
-            console.log(
-              `[monarch] 候选 ${config.variantId}/${config.syntacticVariantId ?? "none"}：审计${passed}，${errorIssues.length} 个错误，${warnIssues.length} 个警告`
-            );
-          }
+          console.log(
+            `[monarch] 候选 ${config.variantId}/${config.syntacticVariantId ?? "none"}：审计${passed}，${errorIssues.length} 个错误，${warnIssues.length} 个警告。前 3 个错误：${first3}`
+          );
         }
 
         const candidate = this.createCandidateFromProse(

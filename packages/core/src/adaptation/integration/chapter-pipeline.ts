@@ -487,7 +487,7 @@ export class ChapterPipelineAdapter {
     }
 
     if (processed.adversarialResult) {
-      const rounds = processed.adversarialResult.rounds ?? 0;
+      const rounds = processed.adversarialResult.totalRounds ?? 0;
       console.log(`  [monarch] 对抗精炼：${rounds} 轮`);
     }
     if (processed.readerResult) {
