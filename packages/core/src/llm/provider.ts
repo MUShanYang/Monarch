@@ -771,7 +771,9 @@ async function chatCompletionViaCustomOpenAICompatible(
 
   if (!content) {
     const diag = `usage=${usage.promptTokens}+${usage.completionTokens}`;
-    console.warn(`[inkos] LLM 流式响应无文本内容 (${diag})`);
+    if (process.env.DEBUG_LLM) {
+      console.warn(`[inkos] LLM 流式响应无文本内容 (${diag})`);
+    }
     throw wrapLLMError(new Error(`LLM returned empty response from stream (${diag})`), errorCtx);
   }
   return { content, usage };
@@ -1029,7 +1031,9 @@ async function chatCompletionViaPiAi(
   const content = chunks.join("");
   if (!content) {
     const diag = `usage=${inputTokens}+${outputTokens}`;
-    console.warn(`[inkos] LLM 流式响应无文本内容 (${diag})`);
+    if (process.env.DEBUG_LLM) {
+      console.warn(`[inkos] LLM 流式响应无文本内容 (${diag})`);
+    }
     throw new Error(`LLM returned empty response from stream (${diag})`);
   }
 
