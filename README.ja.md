@@ -50,6 +50,8 @@ monarch write next <book-id> --no-adaptation
 
 ## アーキテクチャ概要
 
+![Adaptation Pipeline](assets/adaptation-pipeline.svg)
+
 ### Adaptation Pipeline 三層アーキテクチャ
 
 ```
@@ -90,14 +92,7 @@ Beat Level（ビートレベル）- 11ステッププロセス
 
 **イベントソーシング**: LLM は状態を直接変更せず、すべての変更はイベント適用を通じて
 
-**並列制約**: 最大3つの同時 LLM 呼び出し（RED LINE）
-
-## RED LINES（アーキテクチャ制約）
-
-- **NO LLM FOR LOGIC** - すべてのロジックは純粋な TypeScript である必要があります
-- **MAX 3 PARALLEL CALLS** - Promise.all の LLM 呼び出しは3つまで
-- **EVENT SOURCING ONLY** - LLM は状態ファイルを直接変更しません
-- **NO MODIFICATION OF BASE INKOS** - すべてのコードは `src/adaptation/` ディレクトリ内
+**並列制約**: 最大3つの同時 LLM 呼び出し
 
 ## InkOS との関係
 

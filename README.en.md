@@ -50,6 +50,8 @@ monarch write next <book-id> --no-adaptation
 
 ## Architecture Overview
 
+![Adaptation Pipeline](assets/adaptation-pipeline.svg)
+
 ### Adaptation Pipeline Three-Layer Architecture
 
 ```
@@ -90,14 +92,7 @@ Beat Level - 11-Step Process
 
 **Event Sourcing**: LLM never directly modifies state, all changes through event application
 
-**Parallel Constraint**: Max 3 concurrent LLM calls (RED LINE)
-
-## RED LINES (Architectural Constraints)
-
-- **NO LLM FOR LOGIC** - All logic must be pure TypeScript
-- **MAX 3 PARALLEL CALLS** - Promise.all LLM calls limited to 3
-- **EVENT SOURCING ONLY** - LLM never directly modifies state files
-- **NO MODIFICATION OF BASE INKOS** - All code in `src/adaptation/` directory
+**Parallel Constraint**: Max 3 concurrent LLM calls
 
 ## Relationship with InkOS
 

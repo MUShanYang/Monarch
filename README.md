@@ -50,6 +50,8 @@ monarch write next <book-id> --no-adaptation
 
 ## 架构概览
 
+![Adaptation Pipeline](assets/adaptation-pipeline.svg)
+
 ### Adaptation Pipeline 三层架构
 
 ```
@@ -90,14 +92,7 @@ Beat Level (节拍级) - 11步流程
 
 **事件溯源**: LLM 从不直接修改状态，所有变更通过事件应用
 
-**并行约束**: 最多 3 个并发 LLM 调用（RED LINE）
-
-## RED LINES（架构约束）
-
-- **NO LLM FOR LOGIC** - 所有逻辑必须是纯 TypeScript
-- **MAX 3 PARALLEL CALLS** - Promise.all 的 LLM 调用不超过 3 个
-- **EVENT SOURCING ONLY** - LLM 绝不直接修改状态文件
-- **NO MODIFICATION OF BASE INKOS** - 所有代码在 `src/adaptation/` 目录下
+**并行约束**: 最多 3 个并发 LLM 调用
 
 ## 与 InkOS 的关系
 

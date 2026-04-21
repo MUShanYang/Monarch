@@ -22,6 +22,8 @@ This is a pnpm workspace with three packages:
 
 ## Build Commands
 
+**Requirements**: Node >= 20.0.0, pnpm >= 9.0.0
+
 ```bash
 # Build all packages
 pnpm build
@@ -50,8 +52,14 @@ cd packages/core && pnpm build
 # Run tests in specific package
 cd packages/core && pnpm test
 
+# Run single test file
+cd packages/core && pnpm vitest run <test-file-name>
+
 # Watch mode for specific package
 cd packages/cli && pnpm dev
+
+# Watch mode for tests
+cd packages/core && pnpm vitest
 ```
 
 ## Two Execution Modes
@@ -86,20 +94,26 @@ The adaptation layer is organized into three levels:
 - **Narrative Drift Detector**: Every 5 chapters, checks consistency (tension, pacing, dialogue ratio)
 - **Curiosity Ledger**: Tracks reader questions and staleness (dormant/warm/urgent/overdue)
 - **Metabolism Reporter**: Chapter health monitoring (stable/warming/overheating/cooling)
+- **Emotional Debt Analysis**: Tracks unresolved emotional threads and payoff timing
+- **Unconscious Analysis**: Detects implicit patterns and subconscious narrative elements
+- **Timeline Analysis**: Validates temporal consistency and detects timeline conflicts
 
 ### Scene Level
 - **Scene Exit Evaluator**: 9 exit conditions (beat_limit, word_limit, tension_drop, location_change, time_skip, mandatory_hook, human_override, character_exit, narrative_saturation)
 - **Narrative Metabolism**: Real-time scene health metrics
 
-### Beat Level (8-step process)
+### Beat Level (11-step process)
 1. **Beat Planning**: DNA Compiler + Kinetic Scaffold
 2. **Generation**: LLM generates initial prose with DNA constraints
 3. **Adversarial Refinement**: Writer/Attacker/Referee loop (max 6 rounds)
 4. **Reader Simulation**: Three readers (Impatient/Suspicious/Visual) evaluate in parallel
 5. **Knowledge Boundary**: Validates character dialogue against knowledge state
-6. **Cascade Audit**: 5-layer quality gate (word count, proper nouns, DNA compliance, voice, continuity, lexical)
-7. **State Update**: Event sourcing - extract events and apply to state
-8. **Show-Don't-Tell Scalpel**: Post-processing to remove explicit causation
+6. **Subtext Analysis**: Detects and validates implicit meaning layers
+7. **Voice Fingerprint**: Ensures character voice consistency
+8. **Dialogue Validation**: Validates dialogue against character knowledge and voice
+9. **Cascade Audit**: 5-layer quality gate (word count, proper nouns, DNA compliance, voice, continuity, lexical)
+10. **State Update**: Event sourcing - extract events and apply to state
+11. **Show-Don't-Tell Scalpel**: Post-processing to remove explicit causation
 
 See `packages/core/src/adaptation/pipeline/FLOW.md` for complete flow diagrams.
 
@@ -123,9 +137,9 @@ packages/core/src/adaptation/
 ├── audit/             # Lexical monitoring, cascade auditor
 ├── generation/        # Adversarial refinement loop
 ├── simulation/        # Three-reader simulator
-├── character/         # Knowledge boundary checker
-├── narrative/         # Drift detection, curiosity ledger, metabolism
-├── scene/             # Scene exit conditions
+├── character/         # Knowledge boundary checker, voice fingerprint, dialogue validation
+├── narrative/         # Drift detection, curiosity ledger, metabolism, emotional debt, unconscious analysis, timeline analysis
+├── scene/             # Scene exit conditions, subtext analysis
 ├── llm/               # API constraints, token calculations
 ├── integration/       # Hooks, beat orchestrator, chapter pipeline adapter
 └── types/             # Core state type definitions
@@ -230,17 +244,15 @@ cd packages/core && vitest
 
 Test files follow naming convention: `<module-name>.test.ts`
 
-Recent test additions (from git status):
-- `adaptation-api-constraints.test.ts`
-- `adaptation-beat-orchestrator.test.ts`
-- `adaptation-cascade-auditor.test.ts`
-- `adaptation-chapter-pipeline.test.ts`
-- `adaptation-graceful-degradation.test.ts`
-- `adaptation-orchestrator.test.ts`
-- `adaptation-physical-constraints.test.ts`
-- `adaptation-proper-noun-firewall.test.ts`
-- `adaptation-runner.test.ts`
-- `adaptation-speculative-generator.test.ts`
+Key test coverage areas:
+- API constraints and token calculations
+- Beat orchestration and speculative generation
+- Cascade auditor and quality gates
+- Chapter pipeline integration
+- Graceful degradation handling
+- Physical constraints validation
+- Proper noun firewall
+- Pipeline runner integration
 
 ## Common Development Tasks
 
@@ -260,9 +272,9 @@ The beat generation flow is in `packages/core/src/adaptation/integration/chapter
 1. `preGenerationBeat()` - DNA compression, API constraints
 2. `BeatOrchestrator.executeSpeculativeCalls()` - 3-way parallel generation
 3. `selectBestCandidate()` - Audit and selection
-4. `postGenerationBeat()` - Cascade audit, event extraction
+4. `postGenerationBeat()` - Subtext analysis, voice fingerprint, dialogue validation, cascade audit, event extraction
 
-Modifications should maintain the 8-step beat pipeline structure.
+Modifications should maintain the 11-step beat pipeline structure.
 
 ### Debugging Adaptation Issues
 
@@ -271,6 +283,9 @@ Key files to check:
 - `packages/core/src/adaptation/context/dna-compressor.ts` - DNA compression logic
 - `packages/core/src/adaptation/audit/cascade-auditor.ts` - Quality gates
 - `packages/core/src/adaptation/state/event-sourcer.ts` - State management
+- `packages/core/src/adaptation/character/voice-fingerprint.ts` - Voice consistency
+- `packages/core/src/adaptation/narrative/emotional-debt.ts` - Emotional thread tracking
+- `packages/core/src/adaptation/narrative/timeline-analyzer.ts` - Timeline validation
 
 Enable debug logging by checking InkOS configuration (Monarch shares InkOS environment setup).
 

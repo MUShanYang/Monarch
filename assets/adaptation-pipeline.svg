@@ -1,0 +1,227 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 2400" font-family="Arial, sans-serif">
+  <defs>
+    <style>
+      .title { font-size: 24px; font-weight: bold; fill: #1a1a1a; }
+      .subtitle { font-size: 16px; font-weight: bold; fill: #333; }
+      .label { font-size: 14px; fill: #444; }
+      .small { font-size: 12px; fill: #666; }
+      .box { fill: #f8f9fa; stroke: #495057; stroke-width: 2; }
+      .chapter-box { fill: #e7f5ff; stroke: #1971c2; stroke-width: 2; }
+      .scene-box { fill: #fff3bf; stroke: #f59f00; stroke-width: 2; }
+      .beat-box { fill: #d3f9d8; stroke: #2f9e44; stroke-width: 2; }
+      .process-box { fill: #fff; stroke: #868e96; stroke-width: 1.5; }
+      .parallel-box { fill: #ffe3e3; stroke: #c92a2a; stroke-width: 1.5; stroke-dasharray: 5,5; }
+      .arrow { stroke: #495057; stroke-width: 2; fill: none; marker-end: url(#arrowhead); }
+      .parallel-arrow { stroke: #c92a2a; stroke-width: 2; fill: none; marker-end: url(#arrowhead-red); }
+      .data-arrow { stroke: #1971c2; stroke-width: 1.5; fill: none; stroke-dasharray: 3,3; }
+    </style>
+    <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+      <polygon points="0 0, 10 3, 0 6" fill="#495057" />
+    </marker>
+    <marker id="arrowhead-red" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+      <polygon points="0 0, 10 3, 0 6" fill="#c92a2a" />
+    </marker>
+  </defs>
+
+  <!-- Title -->
+  <text x="700" y="40" text-anchor="middle" class="title">Monarch Adaptation Pipeline</text>
+  <text x="700" y="65" text-anchor="middle" class="small">11-Step Beat Generation Flow with 3-Parallel Constraint</text>
+
+  <!-- Chapter Level -->
+  <rect x="50" y="100" width="1300" height="180" class="chapter-box" rx="8"/>
+  <text x="700" y="130" text-anchor="middle" class="subtitle">Chapter Level (章节级)</text>
+
+  <rect x="80" y="150" width="180" height="60" class="process-box" rx="4"/>
+  <text x="170" y="175" text-anchor="middle" class="label">Drift Detector</text>
+  <text x="170" y="195" text-anchor="middle" class="small">每5章检测漂移</text>
+
+  <rect x="280" y="150" width="180" height="60" class="process-box" rx="4"/>
+  <text x="370" y="175" text-anchor="middle" class="label">Curiosity Ledger</text>
+  <text x="370" y="195" text-anchor="middle" class="small">问题追踪</text>
+
+  <rect x="480" y="150" width="180" height="60" class="process-box" rx="4"/>
+  <text x="570" y="175" text-anchor="middle" class="label">Metabolism</text>
+  <text x="570" y="195" text-anchor="middle" class="small">章节健康度</text>
+
+  <rect x="680" y="150" width="180" height="60" class="process-box" rx="4"/>
+  <text x="770" y="175" text-anchor="middle" class="label">Emotional Debt</text>
+  <text x="770" y="195" text-anchor="middle" class="small">情感债务</text>
+
+  <rect x="880" y="150" width="180" height="60" class="process-box" rx="4"/>
+  <text x="970" y="175" text-anchor="middle" class="label">Unconscious</text>
+  <text x="970" y="195" text-anchor="middle" class="small">无意识分析</text>
+
+  <rect x="1080" y="150" width="180" height="60" class="process-box" rx="4"/>
+  <text x="1170" y="175" text-anchor="middle" class="label">Timeline</text>
+  <text x="1170" y="195" text-anchor="middle" class="small">时间线验证</text>
+
+  <!-- Scene Level -->
+  <rect x="50" y="320" width="1300" height="140" class="scene-box" rx="8"/>
+  <text x="700" y="350" text-anchor="middle" class="subtitle">Scene Level (场景级)</text>
+
+  <rect x="80" y="370" width="280" height="60" class="process-box" rx="4"/>
+  <text x="220" y="395" text-anchor="middle" class="label">Scene Exit Evaluator</text>
+  <text x="220" y="415" text-anchor="middle" class="small">9种退出条件</text>
+
+  <rect x="380" y="370" width="280" height="60" class="process-box" rx="4"/>
+  <text x="520" y="395" text-anchor="middle" class="label">Narrative Metabolism</text>
+  <text x="520" y="415" text-anchor="middle" class="small">实时场景监控</text>
+
+  <!-- Beat Level Pipeline -->
+  <rect x="50" y="500" width="1300" height="1850" class="beat-box" rx="8"/>
+  <text x="700" y="530" text-anchor="middle" class="subtitle">Beat Level (节拍级) - 11 Steps</text>
+
+  <!-- Step 1: Beat Planning -->
+  <rect x="100" y="560" width="1200" height="100" class="process-box" rx="4"/>
+  <text x="150" y="590" class="label" font-weight="bold">1. Beat Planning</text>
+  <text x="150" y="610" class="small">DNA Compiler + Kinetic Scaffold</text>
+  <text x="150" y="630" class="small">DNA: who/where/mustInclude/mustNotInclude/motifEcho/sensoryEcho (≤250 tokens)</text>
+  <text x="150" y="645" class="small">Kinetic Scaffold: 动作序列规划</text>
+
+  <path d="M 700 660 L 700 690" class="arrow"/>
+
+  <!-- Step 2: Generation -->
+  <rect x="100" y="690" width="1200" height="80" class="process-box" rx="4"/>
+  <text x="150" y="720" class="label" font-weight="bold">2. Generation</text>
+  <text x="150" y="740" class="small">LLM 生成初始 prose (temp=0.65, maxTokens 基于 beat type)</text>
+  <text x="150" y="755" class="small">API Constraints: stop_sequences, frequency_penalty=0.3, presence_penalty=0.2</text>
+
+  <path d="M 700 770 L 700 800" class="arrow"/>
+
+  <!-- Step 3: Adversarial Refinement (Parallel) -->
+  <rect x="100" y="800" width="1200" height="180" class="parallel-box" rx="4"/>
+  <text x="150" y="830" class="label" font-weight="bold">3. Adversarial Refinement (最多6轮)</text>
+  <text x="150" y="850" class="small" fill="#c92a2a">⚡ Parallel: Attacker + Referee (2 slots) → Sequential: Writer</text>
+
+  <rect x="150" y="870" width="300" height="50" class="process-box" rx="4"/>
+  <text x="300" y="900" text-anchor="middle" class="small">Attacker: 找1个问题</text>
+
+  <rect x="500" y="870" width="300" height="50" class="process-box" rx="4"/>
+  <text x="650" y="900" text-anchor="middle" class="small">Referee: 判断有效性</text>
+
+  <rect x="850" y="870" width="300" height="50" class="process-box" rx="4"/>
+  <text x="1000" y="900" text-anchor="middle" class="small">Writer: 修复问题</text>
+
+  <path d="M 300 920 L 300 940 L 650 940 L 650 920" class="parallel-arrow"/>
+  <path d="M 475 940 L 1000 940 L 1000 920" class="arrow"/>
+
+  <text x="150" y="965" class="small">退出: YES_FIXED_TWICE | SAME_PROBLEM_TWICE | MAX_ROUNDS | INTRODUCED_NEW_PROBLEM | NO_PROBLEM_FOUND</text>
+
+  <path d="M 700 980 L 700 1010" class="arrow"/>
+
+  <!-- Step 4: Reader Simulation (Parallel) -->
+  <rect x="100" y="1010" width="1200" height="140" class="parallel-box" rx="4"/>
+  <text x="150" y="1040" class="label" font-weight="bold">4. Reader Simulation</text>
+  <text x="150" y="1060" class="small" fill="#c92a2a">⚡ Parallel: 3 Readers (3 slots)</text>
+
+  <rect x="150" y="1080" width="300" height="50" class="process-box" rx="4"/>
+  <text x="300" y="1105" text-anchor="middle" class="small">Impatient: 钩子检查</text>
+
+  <rect x="500" y="1080" width="300" height="50" class="process-box" rx="4"/>
+  <text x="650" y="1105" text-anchor="middle" class="small">Suspicious: 困惑检查</text>
+
+  <rect x="850" y="1080" width="300" height="50" class="process-box" rx="4"/>
+  <text x="1000" y="1105" text-anchor="middle" class="small">Visual: 画面感检查</text>
+
+  <path d="M 700 1150 L 700 1180" class="arrow"/>
+
+  <!-- Step 5: Knowledge Boundary -->
+  <rect x="100" y="1180" width="1200" height="80" class="process-box" rx="4"/>
+  <text x="150" y="1210" class="label" font-weight="bold">5. Knowledge Boundary</text>
+  <text x="150" y="1230" class="small">验证角色对话是否符合知识状态 (knows/suspects/doesNotKnow)</text>
+  <text x="150" y="1245" class="small">词干提取 + 同义词扩展 + 相似度阈值 0.72</text>
+
+  <path d="M 700 1260 L 700 1290" class="arrow"/>
+
+  <!-- Step 6: Subtext Analysis -->
+  <rect x="100" y="1290" width="1200" height="80" class="process-box" rx="4"/>
+  <text x="150" y="1320" class="label" font-weight="bold">6. Subtext Analysis</text>
+  <text x="150" y="1340" class="small">潜台词检测 (仅 dialogue beats): literal/implied/unconscious 三层</text>
+  <text x="150" y="1355" class="small">植入 subtext 条目到引擎</text>
+
+  <path d="M 700 1370 L 700 1400" class="arrow"/>
+
+  <!-- Step 7: Voice Fingerprint -->
+  <rect x="100" y="1400" width="1200" height="80" class="process-box" rx="4"/>
+  <text x="150" y="1430" class="label" font-weight="bold">7. Voice Fingerprint</text>
+  <text x="150" y="1450" class="small">声音一致性检查: 与第1章提取的 fingerprint 对比</text>
+  <text x="150" y="1465" class="small">相似度计算 + 一致性判断</text>
+
+  <path d="M 700 1480 L 700 1510" class="arrow"/>
+
+  <!-- Step 8: Dialogue Validation -->
+  <rect x="100" y="1510" width="1200" height="80" class="process-box" rx="4"/>
+  <text x="150" y="1540" class="label" font-weight="bold">8. Dialogue Validation</text>
+  <text x="150" y="1560" class="small">对话验证 (仅 dialogue beats): 角色知识 + 声音 + 关系动态</text>
+  <text x="150" y="1575" class="small">Dialogue Arena 多维度检查</text>
+
+  <path d="M 700 1590 L 700 1620" class="arrow"/>
+
+  <!-- Step 9: Cascade Audit -->
+  <rect x="100" y="1620" width="1200" height="120" class="process-box" rx="4"/>
+  <text x="150" y="1650" class="label" font-weight="bold">9. Cascade Audit (5层质量门)</text>
+  <text x="150" y="1670" class="small">Layer 1: Word Count (硬性范围)</text>
+  <text x="150" y="1685" class="small">Layer 1.5: Proper Noun Firewall (未知实体)</text>
+  <text x="150" y="1700" class="small">Layer 2: DNA Compliance (mustInclude/mustNotInclude)</text>
+  <text x="150" y="1715" class="small">Layer 3: Voice Fingerprint | Layer 4: Continuity | Layer 5: Lexical Monitor (AI痕迹词)</text>
+  <text x="150" y="1730" class="small">首次 FAIL 即退出</text>
+
+  <path d="M 700 1740 L 700 1770" class="arrow"/>
+
+  <!-- Step 10: State Update -->
+  <rect x="100" y="1770" width="1200" height="100" class="process-box" rx="4"/>
+  <text x="150" y="1800" class="label" font-weight="bold">10. State Update (Event Sourcing)</text>
+  <text x="150" y="1820" class="small">从 prose 提取事件: ADD_CHARACTER, UPDATE_RELATIONSHIP, MOVE_CHARACTER, UPDATE_SUBPLOT,</text>
+  <text x="150" y="1835" class="small">ACQUIRE_PARATEXT, UPDATE_PHYSICAL_STATE, MOTIF_REFERENCE, KNOWLEDGE_GAIN, CLOSE_HOOK</text>
+  <text x="150" y="1850" class="small">应用事件到 EntitiesDb + NarrativeLedger, 生成 State Diff</text>
+
+  <path d="M 700 1870 L 700 1900" class="arrow"/>
+
+  <!-- Step 11: Show-Don't-Tell Scalpel -->
+  <rect x="100" y="1900" width="1200" height="80" class="process-box" rx="4"/>
+  <text x="150" y="1930" class="label" font-weight="bold">11. Show-Don't-Tell Scalpel</text>
+  <text x="150" y="1950" class="small">后处理: 检测 "because X, Y" 模式</text>
+  <text x="150" y="1965" class="small">重写为物理表现 (移除显式因果)</text>
+
+  <path d="M 700 1980 L 700 2010" class="arrow"/>
+
+  <!-- Output -->
+  <rect x="500" y="2010" width="400" height="60" class="box" rx="4"/>
+  <text x="700" y="2040" text-anchor="middle" class="label" font-weight="bold">✓ Final Beat Prose</text>
+  <text x="700" y="2055" text-anchor="middle" class="small">+ Events + Audit Results</text>
+
+  <!-- Parallel Constraint Legend -->
+  <rect x="50" y="2100" width="600" height="120" class="box" rx="4"/>
+  <text x="70" y="2130" class="label" font-weight="bold">3-Parallel Constraint (RED LINE)</text>
+  <text x="70" y="2150" class="small">Slot 1: Generation / Adversarial Attacker / Reader 1</text>
+  <text x="70" y="2165" class="small">Slot 2: Adversarial Referee / Reader 2</text>
+  <text x="70" y="2180" class="small">Slot 3: Reader 3 / Other parallel tasks</text>
+  <text x="70" y="2200" class="small" font-weight="bold">Sequential: Writer (等待 Attacker+Referee) / State Update (等待所有)</text>
+
+  <!-- Event Sourcing Legend -->
+  <rect x="700" y="2100" width="650" height="120" class="box" rx="4"/>
+  <text x="720" y="2130" class="label" font-weight="bold">Event Sourcing (RED LINE)</text>
+  <text x="720" y="2150" class="small">LLM 永不直接修改状态文件</text>
+  <text x="720" y="2165" class="small">所有状态变更通过事件提取和应用</text>
+  <text x="720" y="2180" class="small">EntitiesDb + NarrativeLedger ← Events</text>
+  <text x="720" y="2200" class="small">每章生成 State Diff 用于连续性追踪</text>
+
+  <!-- Data Flow Arrows -->
+  <path d="M 700 280 L 700 320" class="data-arrow"/>
+  <path d="M 700 460 L 700 500" class="data-arrow"/>
+
+  <text x="720" y="300" class="small" fill="#1971c2">章节数据流</text>
+  <text x="720" y="480" class="small" fill="#1971c2">场景数据流</text>
+
+  <!-- Annotations -->
+  <text x="1320" y="1000" class="small" fill="#c92a2a" text-anchor="end">⚡ = 并行执行</text>
+  <text x="1320" y="1020" class="small" fill="#495057" text-anchor="end">→ = 串行执行</text>
+
+  <!-- Footer -->
+  <text x="700" y="2360" text-anchor="middle" class="small" fill="#868e96">
+    Monarch Adaptation Layer: Pure TypeScript Logic + Small Model (4B) Text Generation
+  </text>
+  <text x="700" y="2380" text-anchor="middle" class="small" fill="#868e96">
+    Philosophy: "Model only writes sentences, system tracks worldview"
+  </text>
+</svg>
