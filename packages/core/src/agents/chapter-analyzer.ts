@@ -251,7 +251,7 @@ ${bookRulesBody ? `## Book Rules\n\n${bookRulesBody}` : ""}
 Use === TAG === delimiters exactly as shown:
 
 === CHAPTER_TITLE ===
-(Extract or infer the chapter title. Output title text only.)
+(Extract the chapter title from the content if present; otherwise generate a short descriptive title (3-8 words) based on the chapter content. Do NOT use placeholder text like "no clear title" or "inferred from content".)
 
 === CHAPTER_CONTENT ===
 (Repeat the original chapter content exactly. Do not rewrite.)
@@ -358,7 +358,7 @@ ${bookRulesBody ? `## 本书规则\n\n${bookRulesBody}` : ""}
 使用 === TAG === 分隔各部分，与写作模块完全一致：
 
 === CHAPTER_TITLE ===
-（从正文标题行提取或推断章节标题，只输出标题文字）
+（从正文标题行提取章节标题；如果正文没有标题行，则根据正文内容生成一个简短的描述性标题，3-8个字，不要使用"无明确章节标题"等占位符文字）
 
 === CHAPTER_CONTENT ===
 （原样输出正文内容，不做任何修改）
