@@ -261,6 +261,92 @@ export function __resetFixedTemperatureWarnings(): void {
   warnedFixedTemperatureModels.clear();
 }
 
+// === Retry Logic ===
+
+export interface RetryConfig {
+  readonly maxRetries: number;
+  readonly initialDelayMs: number;
+  readonly maxDelayMs: number;
+  readonly backoffMultiplier: number;
+}
+
+export const DEFAULT_RETRY_CONFIG: RetryConfig = {
+  maxRetries: 3,
+  initialDelayMs: 1000,
+  maxDelayMs: 30000,
+  backoffMultiplier: 2,
+};
+
+function isRetryableError(error: unknown): boolean {
+  const msg = String(error);
+  // 可重试的错误类型
+  return (
+    msg.includes("429") || // Rate limit
+    msg.includes("500") || // Server error
+    msg.includes("502") || // Bad gateway
+    msg.includes("503") || // Service unavailable
+    msg.includes("504") || // Gateway timeout
+    msg.includes("Connection error") ||
+    msg.includes("ECONNREFUSED") ||
+    msg.includes("ENOTFOUND") ||
+    msg.includes("fetch failed") ||
+    msg.includes("ETIMEDOUT") ||
+    msg.includes("network")
+  );
+}
+
+function calculateBackoffDelay(attempt: number, config: RetryConfig): number {
+  const delay = config.initialDelayMs * Math.pow(config.backoffMultiplier, attempt);
+  return Math.min(delay, config.maxDelayMs);
+}
+
+async function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  config: RetryConfig = DEFAULT_RETRY_CONFIG,
+  context?: { readonly operation?: string; readonly model?: string },
+): Promise<T> {
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt <= config.maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+
+      // 不可重试的错误直接抛出
+      if (!isRetryableError(error)) {
+        throw error;
+      }
+
+      // 最后一次尝试失败,不再重试
+      if (attempt === config.maxRetries) {
+        console.error(
+          `[monarch] LLM 调用失败,已重试 ${config.maxRetries} 次` +
+          (context?.operation ? ` (${context.operation})` : "") +
+          (context?.model ? ` [${context.model}]` : "")
+        );
+        throw error;
+      }
+
+      // 计算退避延迟
+      const delayMs = calculateBackoffDelay(attempt, config);
+      console.warn(
+        `[monarch] LLM 调用失败,${delayMs}ms 后重试 (${attempt + 1}/${config.maxRetries})` +
+        (context?.operation ? ` (${context.operation})` : "") +
+        `: ${String(error).slice(0, 100)}`
+      );
+
+      await sleep(delayMs);
+    }
+  }
+
+  throw lastError;
+}
+
 // === Error Wrapping ===
 
 function wrapLLMError(error: unknown, context?: { readonly baseUrl?: string; readonly model?: string }): Error {
@@ -791,6 +877,7 @@ export async function chatCompletion(
     readonly webSearch?: boolean;
     readonly onStreamProgress?: OnStreamProgress;
     readonly onTextDelta?: (text: string) => void;
+    readonly retryConfig?: Partial<RetryConfig>;
   },
 ): Promise<LLMResponse> {
   const perCallMax = options?.maxTokens ?? client.defaults.maxTokens;
@@ -806,22 +893,29 @@ export async function chatCompletion(
   const onStreamProgress = options?.onStreamProgress;
   const onTextDelta = options?.onTextDelta;
   const errorCtx = { baseUrl: client._piModel?.baseUrl ?? "(unknown)", model };
+  const retryConfig = { ...DEFAULT_RETRY_CONFIG, ...options?.retryConfig };
 
-  try {
-    if (shouldUseNativeCustomTransport(client)) {
-      return await chatCompletionViaCustomOpenAICompatible(client, model, messages, resolved, onStreamProgress, onTextDelta);
-    }
-    return await chatCompletionViaPiAi(client, model, messages, resolved, onStreamProgress, onTextDelta);
-  } catch (error) {
-    // Stream interrupted but partial content is usable — return truncated response
-    if (error instanceof PartialResponseError) {
-      return {
-        content: error.partialContent,
-        usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
-      };
-    }
-    throw wrapLLMError(error, errorCtx);
-  }
+  return withRetry(
+    async () => {
+      try {
+        if (shouldUseNativeCustomTransport(client)) {
+          return await chatCompletionViaCustomOpenAICompatible(client, model, messages, resolved, onStreamProgress, onTextDelta);
+        }
+        return await chatCompletionViaPiAi(client, model, messages, resolved, onStreamProgress, onTextDelta);
+      } catch (error) {
+        // Stream interrupted but partial content is usable — return truncated response
+        if (error instanceof PartialResponseError) {
+          return {
+            content: error.partialContent,
+            usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
+          };
+        }
+        throw wrapLLMError(error, errorCtx);
+      }
+    },
+    retryConfig,
+    { operation: "chatCompletion", model },
+  );
 }
 
 // === Tool-calling Chat (used by agent loop) ===
@@ -834,20 +928,29 @@ export async function chatWithTools(
   options?: {
     readonly temperature?: number;
     readonly maxTokens?: number;
+    readonly retryConfig?: Partial<RetryConfig>;
   },
 ): Promise<ChatWithToolsResult> {
-  try {
-    const resolved = {
-      temperature: clampTemperatureForModel(
-        model,
-        options?.temperature ?? client.defaults.temperature,
-      ),
-      maxTokens: options?.maxTokens ?? client.defaults.maxTokens,
-    };
-    return await chatWithToolsViaPiAi(client, model, messages, tools, resolved);
-  } catch (error) {
-    throw wrapLLMError(error);
-  }
+  const retryConfig = { ...DEFAULT_RETRY_CONFIG, ...options?.retryConfig };
+
+  return withRetry(
+    async () => {
+      try {
+        const resolved = {
+          temperature: clampTemperatureForModel(
+            model,
+            options?.temperature ?? client.defaults.temperature,
+          ),
+          maxTokens: options?.maxTokens ?? client.defaults.maxTokens,
+        };
+        return await chatWithToolsViaPiAi(client, model, messages, tools, resolved);
+      } catch (error) {
+        throw wrapLLMError(error);
+      }
+    },
+    retryConfig,
+    { operation: "chatWithTools", model },
+  );
 }
 
 // === pi-ai Unified Implementation ===
