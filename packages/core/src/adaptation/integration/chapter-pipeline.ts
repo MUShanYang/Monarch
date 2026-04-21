@@ -144,6 +144,7 @@ export const ChapterGenerationResultSchema = z.object({
   beatCount: z.number().int().min(0).default(0),
   beats: z.array(BeatGenerationStepSchema).default([]),
   events: z.array(z.any()).default([]),
+  generatedTitle: z.string().optional(),
   auditSummary: z.object({
     totalIssues: z.number().int().min(0).default(0),
     errorCount: z.number().int().min(0).default(0),
@@ -364,6 +365,15 @@ export class ChapterPipelineAdapter {
 
       result.wordCount = currentWordCount;
       result.beatCount = result.beats.length;
+
+      // 生成章节标题
+      const chapterContent = result.beats.map((step) => step.selectedProse).filter(Boolean).join("\n\n");
+      result.generatedTitle = await this.generateChapterTitle(
+        config.chapterNumber,
+        chapterContent,
+        this.currentSnapshot?.chronicles.summaries.map((s) => s.title) ?? [],
+      );
+
       result.chapterSummary = this.buildChapterSummary(config.chapterNumber, result.beats, currentWordCount);
       result.metabolismReport = this.metabolism.analyzeChapter(
         config.chapterNumber,
@@ -886,6 +896,58 @@ export class ChapterPipelineAdapter {
     const ratio = targetMinWords <= 2000 ? 0.8 : 0.7;
     const minThreshold = Math.max(400, targetMinWords * ratio);
     return evaluation.shouldExit && currentWordCount >= minThreshold;
+  }
+
+  private async generateChapterTitle(
+    chapterNumber: number,
+    chapterContent: string,
+    existingTitles: string[],
+  ): Promise<string> {
+    if (!this.llmInterface) {
+      return `第${chapterNumber}章`;
+    }
+
+    const contentPreview = chapterContent.slice(0, 1500);
+    const recentTitles = existingTitles.slice(-10).join("、");
+
+    const prompt = [
+      `请为第${chapterNumber}章生成一个简短的章节标题（3-8个字）。`,
+      ``,
+      `要求：`,
+      `1. 标题要体现本章的核心事件或转折点`,
+      `2. 不要包含"第X章"字样`,
+      `3. 避免与已有标题重复或相似`,
+      `4. 避免使用高频词汇和意象`,
+      ``,
+      recentTitles ? `最近章节标题：${recentTitles}` : "",
+      ``,
+      `章节内容预览：`,
+      contentPreview,
+      ``,
+      `只输出标题文字，不要其他内容。`,
+    ].filter(Boolean).join("\n");
+
+    try {
+      const response = await this.llmInterface.callLLM(
+        prompt,
+        "你是小说章节标题生成助手。根据章节内容生成简短、准确、不重复的标题。",
+        {
+          maxTokens: 30,
+          stopSequences: ["\n", "。", "，"],
+          responseFormat: "text",
+          temperature: 0.7,
+          topP: 0.9,
+          frequencyPenalty: 0.5,
+          presencePenalty: 0.3,
+        },
+      );
+
+      const title = response.trim().replace(/^["'《]|["'》]$/g, "");
+      return title.length > 0 && title.length <= 20 ? title : `第${chapterNumber}章`;
+    } catch (error) {
+      console.warn(`[monarch] 标题生成失败，使用默认标题: ${error}`);
+      return `第${chapterNumber}章`;
+    }
   }
 
   private buildChapterSummary(chapterNumber: number, steps: BeatGenerationStep[], wordCount: number): ChapterSummary {

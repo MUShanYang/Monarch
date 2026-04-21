@@ -1285,10 +1285,12 @@ export class PipelineRunner {
       });
     }
 
-    // Use a temporary placeholder title that will be replaced by ChapterAnalyzerAgent
-    const adaptationTitle = pipelineLang === "en"
-      ? `Chapter ${chapterNumber}`
-      : `第${chapterNumber}章`;
+    // Use generated title from adaptation, or fallback to placeholder
+    const adaptationTitle = generationResult.generatedTitle ?? (
+      pipelineLang === "en"
+        ? `Chapter ${chapterNumber}`
+        : `第${chapterNumber}章`
+    );
     const adaptationOutput: WriteChapterOutput = {
       chapterNumber,
       title: adaptationTitle,
