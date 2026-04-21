@@ -1686,7 +1686,7 @@ export class PipelineRunner {
 
         try {
           if (canRetryWithoutStops) {
-            this.config.logger?.warn("Adaptation text request returned empty response with stop sequences; retrying without stop sequences.");
+            this.config.logger?.debug("Adaptation text request returned empty response with stop sequences; retrying without stop sequences.");
             const retryResponse = await executeRequest(messages, constraints, { omitStopSequences: true });
             return retryResponse.content;
           }
@@ -1700,7 +1700,7 @@ export class PipelineRunner {
           throw error;
         }
 
-        this.config.logger?.warn("Adaptation text request still returned empty response; retrying with expanded token budget in non-stream mode.");
+        this.config.logger?.debug("Adaptation text request still returned empty response; retrying with expanded token budget in non-stream mode.");
         const compatibilityRetryResponse = await executeRequest(messages, constraints, {
           omitStopSequences: true,
           expandedMaxTokens: true,

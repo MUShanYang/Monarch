@@ -23,19 +23,16 @@ export const ConstrainedDecodingSchema = z.object({
 export type ConstrainedDecoding = z.infer<typeof ConstrainedDecodingSchema>;
 
 const DEFAULT_STOP_SEQUENCES: StopSequences = [
-  "\n\n",
   "###",
   "[END]",
-  "Note:",
   "```",
-  "---",
 ];
 
 const BEAT_TYPE_TOKEN_LIMITS: Record<BeatType, number> = {
   action: 180,
   dialogue: 220,
-  interiority: 150,
-  environment: 120,
+  interiority: 220,
+  environment: 180,
   transition: 90,
   revelation: 200,
   tension: 170,

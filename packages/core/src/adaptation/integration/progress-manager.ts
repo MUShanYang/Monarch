@@ -52,12 +52,10 @@ export class AdaptationProgressManager {
 
   log(message: string): void {
     if (this.isTTY && this.spinner) {
-      const wasRunning = this.spinner !== null;
-      const savedLabel = this.currentLabel;
       this.spinner.stop();
       console.log(`  ${message}`);
-      if (wasRunning && savedLabel) {
-        this.spinner.start(savedLabel);
+      if (this.currentLabel) {
+        this.spinner.start(this.currentLabel);
       }
     } else {
       console.log(`[monarch] ${message}`);

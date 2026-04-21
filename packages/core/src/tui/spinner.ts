@@ -6,6 +6,7 @@ import {
   brightCyan, brightGreen, brightYellow, brightMagenta,
   bgCyan, bgBlue, bgMagenta, bgGreen, bgYellow, bgGray,
   clearLine, hideCursor, showCursor, reset,
+  gradient, GRADIENTS, type RGB,
 } from "./ansi.js";
 
 export interface OperationTheme {
@@ -15,6 +16,7 @@ export interface OperationTheme {
   readonly bg: string;
   readonly label: string;
   readonly frames: ReadonlyArray<string>;
+  readonly gradient: ReadonlyArray<RGB>;
 }
 
 const WAVE_FRAMES = ["|", "/", "-", "\\", "|", "/", "-", "\\"];
@@ -22,6 +24,11 @@ const PULSE_FRAMES = [".", "o", "O", "o", ".", " "];
 const DOTS_FRAMES = [".  ", ".. ", "...", " ..", "  .", "   "];
 const SCAN_FRAMES = ["[    ]", "[=   ]", "[==  ]", "[=== ]", "[====]", "[ ===]", "[  ==]", "[   =]"];
 const WRITE_FRAMES = [">", ">>", ">>>", ">>>>", ">>>>>", ">>>>", ">>>", ">>"];
+const STAR_FRAMES = ["✢", "✣", "✤", "✥", "✦", "✧", "✢"];
+const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+const DOTS2_FRAMES = ["⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷"];
+const ARROW_FRAMES = ["←", "↖", "↑", "↗", "→", "↘", "↓", "↙"];
+const BOUNCE_FRAMES = ["⠁", "⠂", "⠄", "⡀", "⢀", "⠠", "⠐", "⠈"];
 
 export const THEMES: Record<string, OperationTheme> = {
   thinking: {
@@ -30,7 +37,8 @@ export const THEMES: Record<string, OperationTheme> = {
     brightColor: brightCyan,
     bg: bgCyan,
     label: "思考中",
-    frames: DOTS_FRAMES,
+    frames: SPINNER_FRAMES,
+    gradient: GRADIENTS.cyan_blue,
   },
   writing: {
     icon: ">",
@@ -38,7 +46,8 @@ export const THEMES: Record<string, OperationTheme> = {
     brightColor: brightMagenta,
     bg: bgMagenta,
     label: "写作中",
-    frames: WRITE_FRAMES,
+    frames: DOTS2_FRAMES,
+    gradient: GRADIENTS.magenta_pink,
   },
   auditing: {
     icon: "#",
@@ -46,7 +55,8 @@ export const THEMES: Record<string, OperationTheme> = {
     brightColor: brightYellow,
     bg: bgYellow,
     label: "审计中",
-    frames: SCAN_FRAMES,
+    frames: BOUNCE_FRAMES,
+    gradient: GRADIENTS.yellow_orange,
   },
   revising: {
     icon: "~",
@@ -54,7 +64,8 @@ export const THEMES: Record<string, OperationTheme> = {
     brightColor: brightYellow,
     bg: bgBlue,
     label: "修订中",
-    frames: WAVE_FRAMES,
+    frames: ARROW_FRAMES,
+    gradient: GRADIENTS.cyan_blue,
   },
   planning: {
     icon: "+",
@@ -63,6 +74,7 @@ export const THEMES: Record<string, OperationTheme> = {
     bg: bgCyan,
     label: "规划中",
     frames: PULSE_FRAMES,
+    gradient: GRADIENTS.cyan_blue,
   },
   loading: {
     icon: "o",
@@ -70,9 +82,12 @@ export const THEMES: Record<string, OperationTheme> = {
     brightColor: white,
     bg: bgGray,
     label: "加载中",
-    frames: WAVE_FRAMES,
+    frames: SPINNER_FRAMES,
+    gradient: GRADIENTS.green_cyan,
   },
 };
+
+type SpinnerState = 'intro' | 'spinning';
 
 export class ThemedSpinner {
   private interval: ReturnType<typeof setInterval> | undefined;
@@ -80,6 +95,8 @@ export class ThemedSpinner {
   private elapsed = 0;
   private theme: OperationTheme;
   private currentLabel = "";
+  private state: SpinnerState = 'intro';
+  private introCharsRevealed = 0;
 
   constructor(themeName = "thinking") {
     this.theme = THEMES[themeName] ?? THEMES["thinking"]!;
@@ -89,24 +106,55 @@ export class ThemedSpinner {
     this.currentLabel = label ?? this.theme.label;
     this.frame = 0;
     this.elapsed = 0;
+    this.state = 'intro';
+    this.introCharsRevealed = 0;
     process.stdout.write(hideCursor);
 
     this.interval = setInterval(() => {
-      this.elapsed += 120;
-      const f = this.theme.frames[this.frame % this.theme.frames.length]!;
-      const icon = c(this.theme.icon, this.theme.color);
-      const anim = c(f, this.theme.brightColor);
-      const text = c(this.currentLabel, dim);
-      const time = this.elapsed >= 3000
-        ? c(` ${formatElapsed(this.elapsed)}`, gray)
-        : "";
-      process.stdout.write(`${clearLine}  ${icon} ${text} ${anim}${time}`);
-      this.frame++;
+      if (this.state === 'intro') {
+        this.renderIntro();
+      } else {
+        this.renderSpinning();
+      }
     }, 120);
   }
 
   update(label: string): void {
     this.currentLabel = label;
+  }
+
+  private renderIntro(): void {
+    this.elapsed += 120;
+    this.introCharsRevealed = Math.min(
+      this.introCharsRevealed + 2,
+      this.currentLabel.length
+    );
+
+    const revealed = this.currentLabel.slice(0, this.introCharsRevealed);
+    const star = STAR_FRAMES[this.frame % STAR_FRAMES.length]!;
+    const icon = c(this.theme.icon, this.theme.color);
+    const gradientText = gradient(revealed, this.theme.gradient);
+
+    process.stdout.write(`${clearLine}  ${c(star, this.theme.brightColor)} ${icon} ${gradientText}`);
+    this.frame++;
+
+    if (this.introCharsRevealed >= this.currentLabel.length) {
+      this.state = 'spinning';
+    }
+  }
+
+  private renderSpinning(): void {
+    this.elapsed += 120;
+    const star = STAR_FRAMES[this.frame % STAR_FRAMES.length]!;
+    const f = this.theme.frames[this.frame % this.theme.frames.length]!;
+    const icon = c(this.theme.icon, this.theme.color);
+    const anim = c(f, this.theme.brightColor);
+    const gradientLabel = gradient(this.currentLabel, this.theme.gradient);
+    const time = this.elapsed >= 3000
+      ? c(` ${formatElapsed(this.elapsed)}`, gray)
+      : "";
+    process.stdout.write(`${clearLine}  ${c(star, this.theme.brightColor)} ${icon} ${gradientLabel} ${anim}${time}`);
+    this.frame++;
   }
 
   succeed(message?: string): void {

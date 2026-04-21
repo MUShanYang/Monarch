@@ -237,6 +237,7 @@ export class ChapterPipelineAdapter {
   private adversarialRefiner: AdversarialRefiner | null = null;
   private lastSelection: BeatSelectionResult | null = null;
   private lastWorkflowContext: PipelineContext | null = null;
+  private currentProgress: AdaptationProgressManager | null = null;
 
   constructor(bookDir: string, options?: { maxRetriesPerBeat?: number }) {
     this.bookDir = bookDir;
@@ -273,6 +274,7 @@ export class ChapterPipelineAdapter {
 
   async generateChapter(config: ChapterGenerationConfig): Promise<ChapterGenerationResult> {
     const progress = new AdaptationProgressManager();
+    this.currentProgress = progress;
     const result: ChapterGenerationResult = {
       chapterNumber: config.chapterNumber,
       prose: "",
@@ -351,13 +353,14 @@ export class ChapterPipelineAdapter {
           result.auditSummary.warningCount += step.auditResult.issues.filter((issue: any) => issue.severity === "warning").length;
         }
 
-        if (this.shouldExitScene(result.beats, currentWordCount)) {
+        if (this.shouldExitScene(result.beats, currentWordCount, config.targetWordRange[0])) {
           progress.log("scene exit 条件已满足，结束本章 adaptation 生成");
           break;
         }
       }
 
       progress.cleanup();
+      this.currentProgress = null;
 
       result.wordCount = currentWordCount;
       result.beatCount = result.beats.length;
@@ -397,6 +400,7 @@ export class ChapterPipelineAdapter {
       });
       await this.hooks.saveState();
     } catch (error) {
+      this.currentProgress = null;
       result.failureReason = error instanceof Error ? error.message : String(error);
     }
 
@@ -482,6 +486,18 @@ export class ChapterPipelineAdapter {
       });
     }
 
+    if (processed.adversarialResult) {
+      const rounds = processed.adversarialResult.rounds ?? 0;
+      console.log(`  [monarch] 对抗精炼：${rounds} 轮`);
+    }
+    if (processed.readerResult) {
+      const approved = processed.readerResult.responses.filter((r: any) => r.answer).length;
+      console.log(`  [monarch] 读者模拟：${approved}/3 通过`);
+    }
+    if (processed.knowledgeResult && processed.knowledgeResult.hasBreach) {
+      console.log(`  [monarch] 知识边界：检测到越界`);
+    }
+
     if (processed.events.length > 0) {
       const updated = this.hooks.applyEvents(processed.events, params.chapterNumber);
       if (updated) {
@@ -530,7 +546,7 @@ export class ChapterPipelineAdapter {
             bannedWords: dna.mustNotInclude,
           };
 
-          this.lastSelection = await this.orchestrator.executeSpeculativeCalls(request, this.hooks);
+          this.lastSelection = await this.orchestrator.executeSpeculativeCalls(request, this.hooks, this.currentProgress ?? undefined);
           if (!this.lastSelection.selectedProse) {
             throw new Error(`No speculative candidate selected for beat ${beat.id}`);
           }
@@ -839,7 +855,7 @@ export class ChapterPipelineAdapter {
     return motifs[0];
   }
 
-  private shouldExitScene(steps: BeatGenerationStep[], currentWordCount: number): boolean {
+  private shouldExitScene(steps: BeatGenerationStep[], currentWordCount: number, targetMinWords: number): boolean {
     if (!this.currentSnapshot || steps.length < 3) {
       return false;
     }
@@ -867,7 +883,9 @@ export class ChapterPipelineAdapter {
       initialCharacters: first.dna.who.map((character) => character.id),
     });
 
-    return evaluation.shouldExit && currentWordCount >= 400;
+    const ratio = targetMinWords <= 2000 ? 0.8 : 0.7;
+    const minThreshold = Math.max(400, targetMinWords * ratio);
+    return evaluation.shouldExit && currentWordCount >= minThreshold;
   }
 
   private buildChapterSummary(chapterNumber: number, steps: BeatGenerationStep[], wordCount: number): ChapterSummary {

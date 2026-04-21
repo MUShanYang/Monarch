@@ -36,3 +36,63 @@ export function c(text: string, ...codes: string[]): string {
 export function stripAnsi(s: string): string {
   return s.replace(/\x1b\[[0-9;]*m/g, "");
 }
+
+export interface RGB {
+  r: number;
+  g: number;
+  b: number;
+}
+
+export function rgb(r: number, g: number, b: number): string {
+  return `\x1b[38;2;${r};${g};${b}m`;
+}
+
+export function bgRgb(r: number, g: number, b: number): string {
+  return `\x1b[48;2;${r};${g};${b}m`;
+}
+
+export function lerpColor(color1: RGB, color2: RGB, t: number): RGB {
+  return {
+    r: Math.round(color1.r + (color2.r - color1.r) * t),
+    g: Math.round(color1.g + (color2.g - color1.g) * t),
+    b: Math.round(color1.b + (color2.b - color1.b) * t),
+  };
+}
+
+export function gradient(text: string, colors: readonly RGB[]): string {
+  if (colors.length === 0) return text;
+  if (colors.length === 1) {
+    const col = colors[0]!;
+    return `${rgb(col.r, col.g, col.b)}${text}${reset}`;
+  }
+
+  const chars = Array.from(text);
+  const segments = colors.length - 1;
+  const charsPerSegment = chars.length / segments;
+
+  return chars.map((char, i) => {
+    const segmentIndex = Math.min(Math.floor(i / charsPerSegment), segments - 1);
+    const segmentProgress = (i - segmentIndex * charsPerSegment) / charsPerSegment;
+    const color = lerpColor(colors[segmentIndex]!, colors[segmentIndex + 1]!, segmentProgress);
+    return `${rgb(color.r, color.g, color.b)}${char}`;
+  }).join('') + reset;
+}
+
+export const GRADIENTS = {
+  cyan_blue: [
+    { r: 56, g: 189, b: 248 },
+    { r: 139, g: 92, b: 246 },
+  ],
+  magenta_pink: [
+    { r: 236, g: 72, b: 153 },
+    { r: 251, g: 146, b: 60 },
+  ],
+  green_cyan: [
+    { r: 52, g: 211, b: 153 },
+    { r: 16, g: 185, b: 129 },
+  ],
+  yellow_orange: [
+    { r: 251, g: 191, b: 36 },
+    { r: 245, g: 158, b: 11 },
+  ],
+};
