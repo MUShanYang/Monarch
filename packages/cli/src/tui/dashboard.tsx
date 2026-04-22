@@ -33,6 +33,7 @@ import {
   ROLE_USER, ROLE_SYSTEM,
   isAppleTerminal,
 } from "./theme.js";
+import { EnhancedDashboard } from "./enhanced-dashboard.js";
 
 function shouldUseLegacyTuiInteraction(intent: InteractionIntentType): boolean {
   switch (intent) {
@@ -63,6 +64,9 @@ export interface InkTuiDashboardProps {
   readonly selectedSlashIndex?: number;
   readonly showComposerCursor?: boolean;
   readonly scrollOffset?: number;
+  readonly tokenUsage?: { input: number; output: number; total: number };
+  readonly progress?: number;
+  readonly estimatedTime?: number;
   readonly onInputChange?: (value: string) => void;
   readonly onSubmit?: (value: string) => void;
 }
@@ -102,12 +106,31 @@ export function InkTuiDashboard(props: InkTuiDashboardProps): React.JSX.Element 
 
   const separatorWidth = Math.max(20, (process.stdout.columns ?? 60) - 8);
   const thinRule = "─".repeat(separatorWidth);
+  const currentStage = model.executionStatus === "writing" ? "生成章节内容" :
+                       model.executionStatus === "planning" ? "规划章节结构" :
+                       model.executionStatus === "composing" ? "组织叙事逻辑" :
+                       model.executionStatus === "repairing" ? "修复一致性问题" :
+                       model.executionStatus === "persisting" ? "保存生成结果" : undefined;
 
   return (
     <Box flexDirection="column" width="100%" paddingX={2}>
       {/* Header bar */}
       <Text color={WARM_MUTED}>{model.headerLine}</Text>
       <Text color={WARM_BORDER}>{thinRule}</Text>
+
+      {/* Enhanced dashboard panels */}
+      {props.isSubmitting && (
+        <Box marginTop={1} marginBottom={1}>
+          <EnhancedDashboard
+            session={props.session}
+            isSubmitting={props.isSubmitting}
+            tokenUsage={props.tokenUsage}
+            estimatedTime={props.estimatedTime}
+            currentStage={currentStage}
+            progress={props.progress}
+          />
+        </Box>
+      )}
 
       {/* Conversation area */}
       <Box flexDirection="column" marginTop={1} flexGrow={1}>
@@ -196,6 +219,9 @@ export function InkTuiApp(props: InkTuiAppProps): React.JSX.Element {
   const [activityIntent, setActivityIntent] = useState<InteractionIntentType | "unknown">("unknown");
   const [activityFrameIndex, setActivityFrameIndex] = useState(0);
   const [chatDepth, setChatDepth] = useState<ChatDepth>("normal");
+  const [tokenUsage, setTokenUsage] = useState({ input: 0, output: 0, total: 0 });
+  const [progress, setProgress] = useState(0);
+  const [estimatedTime, setEstimatedTime] = useState<number | undefined>();
   const assistantDraftTimestampRef = useRef<number | null>(null);
   const submitLockRef = useRef(false);
   const slashSuggestions = getSlashSuggestions(inputValue, SLASH_COMMANDS);
@@ -211,14 +237,21 @@ export function InkTuiApp(props: InkTuiAppProps): React.JSX.Element {
   useEffect(() => {
     if (!isSubmitting) {
       setActivityFrameIndex(0);
+      setProgress(0);
       return;
     }
 
     const timer = setInterval(() => {
       setActivityFrameIndex((current) => (current + 1) % activity.frames.length);
+      // Simulate progress based on activity
+      setProgress((current) => {
+        if (current >= 95) return current;
+        const increment = activityIntent === "write_next" ? 0.5 : 1;
+        return Math.min(95, current + increment);
+      });
     }, activity.intervalMs);
     return () => clearInterval(timer);
-  }, [activity.frames.length, activity.intervalMs, isSubmitting]);
+  }, [activity.frames.length, activity.intervalMs, isSubmitting, activityIntent]);
 
   if (props.chatStreamBridge) {
     props.chatStreamBridge.getChatRequestOptions = () => ({
@@ -232,6 +265,13 @@ export function InkTuiApp(props: InkTuiAppProps): React.JSX.Element {
     if (timestamp === null) {
       return;
     }
+
+    // Update token usage estimation
+    setTokenUsage((current) => ({
+      ...current,
+      output: current.output + Math.ceil(text.length / 4),
+      total: current.input + current.output + Math.ceil(text.length / 4),
+    }));
 
     setSession((current) => appendStreamingAssistantChunk(current, text, timestamp));
   });
@@ -382,6 +422,20 @@ export function InkTuiApp(props: InkTuiAppProps): React.JSX.Element {
       setInputValue("");
       setScrollOffset(0);
       setHistoryState({ cursor: null, draft: "" });
+      setProgress(0);
+      setTokenUsage((current) => ({
+        input: current.input + Math.ceil(input.length / 4),
+        output: 0,
+        total: current.input + Math.ceil(input.length / 4),
+      }));
+      // Estimate time based on intent
+      if (routed.intent === "write_next") {
+        setEstimatedTime(180); // 3 minutes for chapter
+      } else if (routed.intent === "chat") {
+        setEstimatedTime(30); // 30 seconds for chat
+      } else {
+        setEstimatedTime(60); // 1 minute default
+      }
       setSession((current) => createOptimisticUserMessageSession(current, input, userTimestamp));
 
       if (routed.intent === "develop_book" && !session.creationDraft) {
@@ -410,6 +464,7 @@ export function InkTuiApp(props: InkTuiAppProps): React.JSX.Element {
         });
         await persistProjectSession(props.projectRoot, nextSession);
         setSession(nextSession);
+        setProgress(100);
       } else {
         const result = await processTuiAgentInput({
           projectRoot: props.projectRoot,
@@ -421,6 +476,7 @@ export function InkTuiApp(props: InkTuiAppProps): React.JSX.Element {
           },
         });
         setSession(result.session);
+        setProgress(100);
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -431,6 +487,7 @@ export function InkTuiApp(props: InkTuiAppProps): React.JSX.Element {
       assistantDraftTimestampRef.current = null;
       setIsSubmitting(false);
       setActivityIntent("unknown");
+      setEstimatedTime(undefined);
       submitLockRef.current = false;
     }
   };
@@ -463,6 +520,9 @@ export function InkTuiApp(props: InkTuiAppProps): React.JSX.Element {
       selectedSlashIndex={selectedSlashIndex}
       showComposerCursor={composerCaret.visible}
       scrollOffset={scrollOffset}
+      tokenUsage={tokenUsage}
+      progress={progress}
+      estimatedTime={estimatedTime}
       onInputChange={(value) => {
         setInputValue(value);
         setSelectedSlashIndex(0);
