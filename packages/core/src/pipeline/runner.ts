@@ -1259,28 +1259,9 @@ export class PipelineRunner {
     const hooksToAdvance = persistedPlan?.intent.hookAgenda.mustAdvance ?? [];
     const hooksToResolve = persistedPlan?.intent.hookAgenda.eligibleResolve ?? [];
 
-    // If no persisted plan hooks, extract from pending_hooks.md
+    // If no persisted plan hooks, don't extract from pending_hooks.md
+    // Instead, rely on previousChapterEndingSummary for continuity
     let effectiveHooksToAdvance = hooksToAdvance;
-    if (effectiveHooksToAdvance.length === 0) {
-      try {
-        const pendingHooksPath = join(bookDir, "story", "pending_hooks.md");
-        const pendingHooksContent = await readFile(pendingHooksPath, "utf-8");
-        const hookMatches = pendingHooksContent.matchAll(/^##\s+(.+?)$/gm);
-        const extractedHooks: string[] = [];
-        for (const match of hookMatches) {
-          const hookTitle = match[1]?.trim();
-          if (hookTitle && !hookTitle.includes("Pending Hooks") && !hookTitle.includes("待解决")) {
-            extractedHooks.push(hookTitle);
-          }
-        }
-        if (extractedHooks.length > 0) {
-          effectiveHooksToAdvance = extractedHooks.slice(0, 3); // Take top 3 hooks
-          this.config.logger?.info(`[adaptation] 从 pending_hooks.md 提取了 ${effectiveHooksToAdvance.length} 个剧情线索`);
-        }
-      } catch (error) {
-        // Ignore if pending_hooks.md doesn't exist
-      }
-    }
 
     // Extract previous chapter ending summary for continuity
     let previousChapterEndingSummary = "";
