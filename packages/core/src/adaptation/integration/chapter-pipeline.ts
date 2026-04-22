@@ -108,6 +108,15 @@ import {
   createStyleConsistencyChecker,
   type StyleConsistencyResult,
 } from "../audit/style-consistency-checker.js";
+import {
+  KnowledgeTracker,
+  createKnowledgeTracker,
+} from "../character/knowledge-tracker.js";
+import {
+  KnowledgeValidator,
+  createKnowledgeValidator,
+  type KnowledgeValidationDecision,
+} from "../character/knowledge-validator.js";
 
 export interface ChapterPipelineLLMInterface extends BeatOrchestratorLLMInterface {
   callLLM(
@@ -320,6 +329,8 @@ export class ChapterPipelineAdapter {
   private readonly beatTypeRecommender = createBeatTypeRecommender();
   private healthMonitor: ChapterHealthMonitor | null = null;
   private readonly styleChecker = createStyleConsistencyChecker();
+  private readonly knowledgeTracker: KnowledgeTracker;
+  private knowledgeValidator: KnowledgeValidator | null = null;
 
   constructor(bookDir: string, options?: { maxRetriesPerBeat?: number }) {
     this.bookDir = bookDir;
@@ -330,6 +341,7 @@ export class ChapterPipelineAdapter {
       selectionStrategy: "best_score",
     });
     this.motifSystem = createHybridMotifSystem(bookDir);
+    this.knowledgeTracker = createKnowledgeTracker(bookDir);
   }
 
   async initialize(): Promise<void> {
@@ -338,6 +350,12 @@ export class ChapterPipelineAdapter {
     await this.hooks.initialize();
     this.currentSnapshot = this.hooks.getSnapshot();
     await this.motifSystem.initialize();
+    await this.knowledgeTracker.load();
+    this.knowledgeValidator = createKnowledgeValidator(this.knowledgeTracker, {
+      strictMode: false,
+      autoRetry: true,
+      maxRetries: 2,
+    });
     this.rebuildCuriosityLedger();
 
     if (this.llmInterface) {
@@ -430,6 +448,34 @@ export class ChapterPipelineAdapter {
           progress.completePhase(`节拍 ${i + 1} 完成：${beatWordCount} 字，累计 ${currentWordCount} 字`);
           lastBeatSummary = cleanProse.substring(0, 150);
           this.updateMotifsFromBeat(step, config.chapterNumber);
+
+          // 知识边界验证
+          if (this.knowledgeValidator && step.beat) {
+            const beat = step.beat as Beat;
+            const validation = await this.knowledgeValidator.validateBeat(
+              cleanProse,
+              beat,
+              config.chapterNumber,
+              i
+            );
+
+            if (validation.action === "reject") {
+              progress.log(`❌ 节拍 ${i + 1} 知识边界严重违规，拒绝`);
+              for (const violation of validation.violations.slice(0, 3)) {
+                progress.log(`  - ${violation.characterName}: ${violation.violatedFact}`);
+              }
+            } else if (validation.action === "warn") {
+              progress.log(`⚠️ 节拍 ${i + 1} 知识边界警告 (得分: ${validation.score})`);
+              for (const violation of validation.violations.slice(0, 2)) {
+                progress.log(`  - ${violation.characterName}: ${violation.violatedFact}`);
+              }
+            } else if (validation.violations.length > 0) {
+              progress.log(`✓ 节拍 ${i + 1} 知识验证通过 (${validation.violations.length} 个轻微问题)`);
+            }
+
+            // 提取并更新知识
+            this.knowledgeValidator.extractAndUpdateKnowledge(cleanProse, beat, config.chapterNumber);
+          }
 
           // 更新健康监控器
           if (this.healthMonitor && step.beat) {
@@ -607,6 +653,12 @@ export class ChapterPipelineAdapter {
 
       // 风格一致性检查
       await this.checkStyleConsistency(result.prose, config.chapterNumber);
+
+      // 保存知识追踪状态
+      if (this.knowledgeValidator) {
+        await this.knowledgeTracker.save();
+        progress.log("✓ 知识追踪状态已保存");
+      }
 
       result.completed = true;
 
