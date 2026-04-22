@@ -1254,6 +1254,34 @@ export class PipelineRunner {
 
     const { generateChapterWithAdaptation } = await import("../adaptation/index.js");
     this.logStage(stageLanguage, { zh: "撰写章节草稿", en: "writing chapter draft" });
+
+    // Extract hooks from persistedPlan or from current state
+    const hooksToAdvance = persistedPlan?.intent.hookAgenda.mustAdvance ?? [];
+    const hooksToResolve = persistedPlan?.intent.hookAgenda.eligibleResolve ?? [];
+
+    // If no persisted plan hooks, extract from pending_hooks.md
+    let effectiveHooksToAdvance = hooksToAdvance;
+    if (effectiveHooksToAdvance.length === 0) {
+      try {
+        const pendingHooksPath = join(bookDir, "story", "pending_hooks.md");
+        const pendingHooksContent = await readFile(pendingHooksPath, "utf-8");
+        const hookMatches = pendingHooksContent.matchAll(/^##\s+(.+?)$/gm);
+        const extractedHooks: string[] = [];
+        for (const match of hookMatches) {
+          const hookTitle = match[1]?.trim();
+          if (hookTitle && !hookTitle.includes("Pending Hooks") && !hookTitle.includes("待解决")) {
+            extractedHooks.push(hookTitle);
+          }
+        }
+        if (extractedHooks.length > 0) {
+          effectiveHooksToAdvance = extractedHooks.slice(0, 3); // Take top 3 hooks
+          this.config.logger?.info(`[adaptation] 从 pending_hooks.md 提取了 ${effectiveHooksToAdvance.length} 个剧情线索`);
+        }
+      } catch (error) {
+        // Ignore if pending_hooks.md doesn't exist
+      }
+    }
+
     const generationResult = await generateChapterWithAdaptation(bookDir, {
       chapterNumber,
       targetWordRange: [Math.floor(targetWordCount * 0.8), Math.floor(targetWordCount * 1.2)],
@@ -1262,8 +1290,8 @@ export class PipelineRunner {
       maxBeats: adaptationBeatPlan.maxBeats,
       minBeats: adaptationBeatPlan.minBeats,
       maxRetriesPerBeat: options?.maxRetries ?? 2,
-      hooksToAdvance: persistedPlan?.intent.hookAgenda.mustAdvance ?? [],
-      hooksToResolve: persistedPlan?.intent.hookAgenda.eligibleResolve ?? [],
+      hooksToAdvance: effectiveHooksToAdvance,
+      hooksToResolve,
       focusCharacterIds: [],
       beatTypes: ["environment", "action", "dialogue", "interiority", "tension", "resolution"],
       governedIntent: persistedPlan?.intent,

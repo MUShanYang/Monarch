@@ -326,7 +326,8 @@ export class BeatOrchestrator {
     parts.push(`张力等级：${request.tensionLevel}/10`);
 
     if (request.chapterNumber > 1) {
-      parts.push("这是续写章节，不是开篇。禁止把剧情重置成主角初醒、失忆、重新进入遗迹或重新自我介绍，除非明确写成回忆、梦境或幻觉。");
+      parts.push("【剧情推进要求】这是续写章节，必须在上一章的基础上推进剧情。禁止重复相同的场景或对话。禁止把剧情重置成主角初醒、失忆、重新进入遗迹或重新自我介绍，除非明确写成回忆、梦境或幻觉。");
+      parts.push("你必须让故事向前发展：引入新的冲突、揭示新的信息、推进角色关系、或改变当前局势。不要停留在原地。");
     }
 
     if (request.kineticScaffold) {
@@ -335,6 +336,7 @@ export class BeatOrchestrator {
 
     if (request.dna?.lastBeatSummary) {
       parts.push(`上一节拍摘要：${request.dna.lastBeatSummary}`);
+      parts.push(`基于上述内容继续推进，不要重复已经发生的事情。`);
     }
 
     if (request.dna?.where) {
@@ -350,10 +352,10 @@ export class BeatOrchestrator {
 
     // 剧情参与要求
     if (request.dna?.hookContext && request.dna.hookContext.length > 0) {
-      parts.push(`参考以下剧情线索：${request.dna.hookContext.slice(0, 3).join("；")}`);
+      parts.push(`【关键剧情线索】你必须推进以下至少一条剧情线：${request.dna.hookContext.slice(0, 3).join("；")}`);
     }
     if (request.dna?.mustInclude && request.dna.mustInclude.length > 0) {
-      parts.push(`必须包含以下元素：${request.dna.mustInclude.join("；")}`);
+      parts.push(`【必须包含】${request.dna.mustInclude.join("；")}`);
     }
 
     // 风格要求 - 从 DNA 中读取，而不是硬编码

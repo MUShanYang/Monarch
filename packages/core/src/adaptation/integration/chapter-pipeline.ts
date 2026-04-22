@@ -85,6 +85,29 @@ import {
   createDialogueArena,
   type DialogueValidationResult,
 } from "../simulation/dialogue-arena.js";
+import {
+  HookPrioritizer,
+  createHookPrioritizer,
+  type HookMetadata,
+  type PrioritizedHook,
+} from "../narrative/hook-prioritizer.js";
+import {
+  BeatTypeRecommender,
+  createBeatTypeRecommender,
+  type BeatHistoryEntry,
+  type BeatRecommendation,
+} from "../beat/beat-type-recommender.js";
+import {
+  ChapterHealthMonitor,
+  createChapterHealthMonitor,
+  type HealthReport,
+  type BeatSnapshot,
+} from "../monitoring/chapter-health-monitor.js";
+import {
+  StyleConsistencyChecker,
+  createStyleConsistencyChecker,
+  type StyleConsistencyResult,
+} from "../audit/style-consistency-checker.js";
 
 export interface ChapterPipelineLLMInterface extends BeatOrchestratorLLMInterface {
   callLLM(
@@ -293,6 +316,10 @@ export class ChapterPipelineAdapter {
   private lastSelection: BeatSelectionResult | null = null;
   private lastWorkflowContext: PipelineContext | null = null;
   private currentProgress: AdaptationProgressManager | null = null;
+  private readonly hookPrioritizer = createHookPrioritizer();
+  private readonly beatTypeRecommender = createBeatTypeRecommender();
+  private healthMonitor: ChapterHealthMonitor | null = null;
+  private readonly styleChecker = createStyleConsistencyChecker();
 
   constructor(bookDir: string, options?: { maxRetriesPerBeat?: number }) {
     this.bookDir = bookDir;
@@ -346,7 +373,14 @@ export class ChapterPipelineAdapter {
     try {
       await this.initialize();
 
-      const beatPlan = this.planBeats(config);
+      // 初始化健康监控器
+      this.healthMonitor = createChapterHealthMonitor(config.maxBeats);
+
+      // 使用 Hook 优先级调整器
+      const prioritizedHooks = this.prioritizeHooks(config);
+      progress.log(`Hook 优先级调整完成：${prioritizedHooks.length} 个待推进线索`);
+
+      const beatPlan = this.planBeatsWithRecommender(config, prioritizedHooks);
       progress.log(`节拍规划完成：共 ${beatPlan.length} 个节拍，类型序列：${beatPlan.join(" / ")}`);
 
       let currentWordCount = 0;
@@ -395,6 +429,30 @@ export class ChapterPipelineAdapter {
           progress.completePhase(`节拍 ${i + 1} 完成：${beatWordCount} 字，累计 ${currentWordCount} 字`);
           lastBeatSummary = cleanProse.substring(0, 150);
           this.updateMotifsFromBeat(step, config.chapterNumber);
+
+          // 更新健康监控器
+          if (this.healthMonitor && step.beat) {
+            const beat = step.beat as Beat;
+            this.healthMonitor.addBeat({
+              type: beat.type,
+              tensionLevel: beat.tensionLevel,
+              wordCount: beatWordCount,
+              hasDialogue: beat.type === "dialogue" || cleanProse.includes("：") || cleanProse.includes(":"),
+              hasAction: beat.type === "action",
+              characterCount: beat.dna.who.length,
+            });
+
+            // 每 3 个 beat 生成一次健康报告
+            if ((i + 1) % 3 === 0) {
+              const healthReport = this.healthMonitor.generateReport();
+              if (healthReport.overallStatus !== "healthy") {
+                progress.log(`健康度：${healthReport.overallStatus}，${healthReport.warnings.length} 个警告`);
+                for (const suggestion of healthReport.suggestions.slice(0, 2)) {
+                  progress.log(`建议：${suggestion}`);
+                }
+              }
+            }
+          }
         } else {
           progress.log(`节拍 ${i + 1} 跳过：无有效内容`);
         }
@@ -545,6 +603,10 @@ export class ChapterPipelineAdapter {
         }));
 
       result.motifsReferenced = this.motifIndexer.getAllMotifs();
+
+      // 风格一致性检查
+      await this.checkStyleConsistency(result.prose, config.chapterNumber);
+
       result.completed = true;
 
       await this.saveMotifIndex();
@@ -1244,6 +1306,155 @@ export class ChapterPipelineAdapter {
     return "balanced";
   }
 
+  /**
+   * 使用 Hook 优先级调整器
+   */
+  private prioritizeHooks(config: ChapterGenerationConfig): PrioritizedHook[] {
+    if (!this.currentSnapshot) {
+      return [];
+    }
+
+    const hooks: HookMetadata[] = this.currentSnapshot.ledger.hooks.map(hook => ({
+      id: hook.id,
+      originChapter: hook.originChapter,
+      lastReferencedChapter: hook.lastReferencedChapter,
+      status: hook.status as "open" | "progressing" | "resolved" | "abandoned" | "deferred",
+      urgency: hook.urgency,
+      description: hook.description,
+      type: hook.type,
+      relatedCharacters: [],
+      tags: [],
+      plannedResolutionChapter: (hook as any).plannedResolutionChapter,
+      isLongTerm: (hook as any).isLongTerm || false,
+    }));
+
+    const targetChapters = 100; // 可以从配置中读取
+    const prioritized = this.hookPrioritizer.prioritizeHooks(hooks, config.chapterNumber);
+
+    // 获取应该在当前章节推进的 hooks
+    const forThisChapter = this.hookPrioritizer.getHooksForChapter(
+      hooks,
+      config.chapterNumber,
+      3
+    );
+
+    return forThisChapter;
+  }
+
+  /**
+   * 使用 Beat 类型推荐器规划 beats
+   */
+  private planBeatsWithRecommender(
+    config: ChapterGenerationConfig,
+    prioritizedHooks: PrioritizedHook[]
+  ): BeatType[] {
+    const types: BeatType[] = [];
+    const avgWordsPerBeat = 100;
+    const estimatedBeats = Math.ceil(config.targetWordRange[1] / avgWordsPerBeat);
+    const beatCount = Math.max(config.minBeats, Math.min(estimatedBeats, config.maxBeats));
+
+    const hooks: HookMetadata[] = prioritizedHooks.map(ph => ph.hook);
+
+    for (let i = 0; i < beatCount; i += 1) {
+      const progress = i / Math.max(1, beatCount);
+      const currentTension = this.calculateTension(i, beatCount, config.startTension, config.endTension);
+
+      // 构建 beat 历史
+      const beatHistory: BeatHistoryEntry[] = types.map((type, index) => ({
+        type,
+        tensionLevel: this.calculateTension(index, beatCount, config.startTension, config.endTension),
+        wordCount: 100,
+        hasDialogue: type === "dialogue",
+        hasAction: type === "action",
+      }));
+
+      // 使用推荐器
+      const recommendation = this.beatTypeRecommender.recommendNextBeat(
+        beatHistory,
+        currentTension,
+        hooks,
+        progress
+      );
+
+      types.push(recommendation.type as BeatType);
+    }
+
+    return this.enforceRhythm(types);
+  }
+
+  /**
+   * 风格一致性检查
+   */
+  private async checkStyleConsistency(
+    newChapterContent: string,
+    chapterNumber: number
+  ): Promise<void> {
+    try {
+      // 如果是第一章，建立风格档案
+      if (chapterNumber === 1) {
+        this.styleChecker.buildProfile([newChapterContent]);
+        console.log("[monarch] 风格档案已建立");
+        return;
+      }
+
+      // 加载之前的章节建立风格档案
+      if (chapterNumber === 2) {
+        const previousChapters: string[] = [];
+        const chaptersDir = join(this.bookDir, "chapters");
+
+        try {
+          const { readdir } = await import("node:fs/promises");
+          const files = await readdir(chaptersDir);
+
+          for (let i = 1; i < chapterNumber; i++) {
+            const paddedNum = String(i).padStart(4, "0");
+            const chapterFile = files.find(f => f.startsWith(paddedNum) && f.endsWith(".md"));
+
+            if (chapterFile) {
+              const content = await readFile(join(chaptersDir, chapterFile), "utf-8");
+              previousChapters.push(content);
+            }
+          }
+
+          if (previousChapters.length > 0) {
+            this.styleChecker.buildProfile(previousChapters);
+            console.log(`[monarch] 风格档案已建立（基于 ${previousChapters.length} 章）`);
+          }
+        } catch (error) {
+          console.warn("[monarch] 无法加载之前章节，跳过风格档案建立");
+          return;
+        }
+      }
+
+      // 检查风格一致性
+      const profile = this.styleChecker.getProfile();
+      if (!profile) {
+        return;
+      }
+
+      const result = this.styleChecker.checkConsistency(newChapterContent);
+
+      if (!result.isConsistent) {
+        console.log(`[monarch] 风格一致性：${result.overallScore}/100`);
+
+        for (const deviation of result.deviations.slice(0, 3)) {
+          console.log(`  - ${deviation.dimension}: ${deviation.message} (${deviation.severity})`);
+        }
+
+        if (result.suggestions.length > 0) {
+          console.log(`[monarch] 建议：`);
+          for (const suggestion of result.suggestions.slice(0, 2)) {
+            console.log(`  - ${suggestion}`);
+          }
+        }
+      } else {
+        console.log(`[monarch] 风格一致性检查通过（${result.overallScore}/100）`);
+      }
+    } catch (error) {
+      console.warn("[monarch] 风格一致性检查失败:", error);
+    }
+  }
+
   private async loadMotifIndex(): Promise<void> {
     const path = this.getMotifIndexPath();
     try {
@@ -1312,28 +1523,38 @@ export class ChapterPipelineAdapter {
     const styleGuideLines: string[] = [];
 
     if (intent) {
-      additionalMustInclude.push(`Chapter goal: ${intent.goal}`);
-      additionalMustInclude.push(...intent.mustKeep.slice(0, 2));
+      // 明确的章节目标作为剧情推进指令
+      additionalMustInclude.push(`本章目标: ${intent.goal}`);
+
+      // 冲突推进指令
+      if (intent.conflicts.length > 0) {
+        const primaryConflict = intent.conflicts[0];
+        if (primaryConflict) {
+          additionalMustInclude.push(`推进冲突: ${primaryConflict.type} - ${primaryConflict.resolution}`);
+        }
+      }
+
+      additionalMustInclude.push(...intent.mustKeep.slice(0, 1));
       additionalMustNotInclude.push(...intent.mustAvoid.slice(0, 4));
 
       if (intent.styleEmphasis.length > 0) {
-        styleGuideLines.push(`Style emphasis: ${intent.styleEmphasis.join(" / ")}`);
+        styleGuideLines.push(`风格重点: ${intent.styleEmphasis.join(" / ")}`);
       }
       if (intent.sceneDirective) {
-        styleGuideLines.push(`Scene directive: ${intent.sceneDirective}`);
+        styleGuideLines.push(`场景指令: ${intent.sceneDirective}`);
       }
       if (intent.arcDirective) {
-        styleGuideLines.push(`Arc directive: ${intent.arcDirective}`);
+        styleGuideLines.push(`弧线指令: ${intent.arcDirective}`);
       }
       if (intent.moodDirective) {
-        styleGuideLines.push(`Mood directive: ${intent.moodDirective}`);
+        styleGuideLines.push(`情绪指令: ${intent.moodDirective}`);
       }
       if (intent.titleDirective) {
-        styleGuideLines.push(`Title directive: ${intent.titleDirective}`);
+        styleGuideLines.push(`标题指令: ${intent.titleDirective}`);
       }
-      if (intent.conflicts.length > 0) {
+      if (intent.conflicts.length > 1) {
         styleGuideLines.push(
-          `Core conflicts: ${intent.conflicts.map((conflict) => `${conflict.type}: ${conflict.resolution}`).join(" / ")}`,
+          `次要冲突: ${intent.conflicts.slice(1).map((conflict) => `${conflict.type}: ${conflict.resolution}`).join(" / ")}`,
         );
       }
     }
