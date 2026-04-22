@@ -179,6 +179,7 @@ export const ChapterGenerationConfigSchema = z.object({
   contextPackage: z.any().optional(),
   ruleStack: z.any().optional(),
   llmInterface: z.any().optional(),
+  previousChapterEndingSummary: z.string().max(150).default(""),
 });
 export type ChapterGenerationConfig = z.infer<typeof ChapterGenerationConfigSchema>;
 
@@ -403,7 +404,7 @@ export class ChapterPipelineAdapter {
       progress.log(`节拍规划完成：共 ${beatPlan.length} 个节拍，类型序列：${beatPlan.join(" / ")}`);
 
       let currentWordCount = 0;
-      let lastBeatSummary = "";
+      let lastBeatSummary = config.previousChapterEndingSummary || "";
 
       for (let i = 0; i < beatPlan.length; i += 1) {
         if (currentWordCount >= config.targetWordRange[1]) {
@@ -526,22 +527,32 @@ export class ChapterPipelineAdapter {
       result.wordCount = currentWordCount;
       result.beatCount = result.beats.length;
 
-      // 生成章节标题
+      // 并行生成章节标题、摘要和代谢报告
       const chapterContent = result.beats.map((step) => step.selectedProse).filter(Boolean).join("\n\n");
-      result.generatedTitle = await this.generateChapterTitle(
-        config.chapterNumber,
-        chapterContent,
-        this.currentSnapshot?.chronicles.summaries.map((s) => s.title) ?? [],
-      );
+      const [generatedTitle, chapterSummary, metabolismReport] = await Promise.all([
+        // 生成章节标题
+        this.generateChapterTitle(
+          config.chapterNumber,
+          chapterContent,
+          this.currentSnapshot?.chronicles.summaries.map((s) => s.title) ?? [],
+        ),
 
-      result.chapterSummary = this.buildChapterSummary(config.chapterNumber, result.beats, currentWordCount);
-      result.metabolismReport = this.metabolism.analyzeChapter(
-        config.chapterNumber,
-        result.beats.map((step) => step.beatType),
-        currentWordCount,
-        result.beats.map((step) => (step.beat as Beat | undefined)?.tensionLevel ?? config.startTension),
-        result.beats.flatMap((step) => ((step.beat as Beat | undefined)?.dna.who ?? []).map((character) => character.id)),
-      );
+        // 构建章节摘要
+        Promise.resolve(this.buildChapterSummary(config.chapterNumber, result.beats, currentWordCount)),
+
+        // 代谢分析
+        Promise.resolve(this.metabolism.analyzeChapter(
+          config.chapterNumber,
+          result.beats.map((step) => step.beatType),
+          currentWordCount,
+          result.beats.map((step) => (step.beat as Beat | undefined)?.tensionLevel ?? config.startTension),
+          result.beats.flatMap((step) => ((step.beat as Beat | undefined)?.dna.who ?? []).map((character) => character.id)),
+        )),
+      ]);
+
+      result.generatedTitle = generatedTitle;
+      result.chapterSummary = chapterSummary;
+      result.metabolismReport = metabolismReport;
 
       if (this.currentSnapshot) {
         this.currentSnapshot.chronicles.summaries = [
@@ -556,56 +567,75 @@ export class ChapterPipelineAdapter {
       }
 
       this.rebuildCuriosityLedger();
-      result.curiosityCheck = this.curiosityLedger.checkCuriosities(config.chapterNumber);
-      result.driftReport = this.buildDriftReport(config.chapterNumber, result.chapterSummary as ChapterSummary);
+      // 并行执行章节后处理分析
+      const [curiosityCheck, driftReport, emotionalDebtAnalysis, unconsciousAnalysis, timelineAnalysis] = await Promise.all([
+        // Curiosity Check
+        Promise.resolve(this.curiosityLedger.checkCuriosities(config.chapterNumber)),
 
-      // Emotional Debt Analysis
-      const emotionalDebtAnalysis: Record<string, DebtAnalysisResult> = {};
-      if (this.currentSnapshot) {
-        for (const character of this.currentSnapshot.entities.characters) {
-          const analysis = this.emotionalDebtManager.analyzeCharacterDebts(character.id);
-          if (analysis.urgentDebts.length > 0 || Math.abs(analysis.netBalance) > 0.5) {
-            emotionalDebtAnalysis[character.id] = analysis;
+        // Drift Report
+        Promise.resolve(this.buildDriftReport(config.chapterNumber, result.chapterSummary as ChapterSummary)),
+
+        // Emotional Debt Analysis
+        Promise.resolve().then(() => {
+          const analysis: Record<string, DebtAnalysisResult> = {};
+          if (this.currentSnapshot) {
+            for (const character of this.currentSnapshot.entities.characters) {
+              const charAnalysis = this.emotionalDebtManager.analyzeCharacterDebts(character.id);
+              if (charAnalysis.urgentDebts.length > 0 || Math.abs(charAnalysis.netBalance) > 0.5) {
+                analysis[character.id] = charAnalysis;
+              }
+            }
+            this.emotionalDebtManager.processChapterAdvancement(config.chapterNumber);
           }
-        }
-        this.emotionalDebtManager.processChapterAdvancement(config.chapterNumber);
-      }
+          return analysis;
+        }),
+
+        // Unconscious Content Analysis
+        Promise.resolve().then(() => {
+          const analysis: Record<string, UnconsciousAnalysis> = {};
+          if (this.currentSnapshot) {
+            for (const character of this.currentSnapshot.entities.characters) {
+              const charAnalysis = this.characterUnconscious.analyzeCharacter(character.id);
+              if (charAnalysis.activeContents.length > 0) {
+                analysis[character.id] = charAnalysis;
+              }
+            }
+            this.characterUnconscious.processChapterAdvancement(config.chapterNumber);
+          }
+          return analysis;
+        }),
+
+        // Timeline Analysis
+        Promise.resolve().then(() => {
+          if (this.currentSnapshot) {
+            for (const step of result.beats) {
+              if (step.beat) {
+                const beat = step.beat as Beat;
+                this.timelineExplorer.addEvent({
+                  timestamp: Date.now(),
+                  chapter: config.chapterNumber,
+                  description: step.selectedProse?.slice(0, 100) ?? "",
+                  characters: beat.dna.who.map(c => c.id),
+                  location: beat.dna.where,
+                  eventType: step.beatType as any,
+                  significance: beat.tensionLevel,
+                  relatedEvents: [],
+                  isFlashback: false,
+                  isFlashforward: false,
+                });
+              }
+            }
+            return this.timelineExplorer.analyzeTimeline();
+          }
+          return undefined;
+        }),
+      ]);
+
+      result.curiosityCheck = curiosityCheck;
+      result.driftReport = driftReport;
       result.emotionalDebtAnalysis = emotionalDebtAnalysis;
-
-      // Unconscious Content Analysis
-      const unconsciousAnalysis: Record<string, UnconsciousAnalysis> = {};
-      if (this.currentSnapshot) {
-        for (const character of this.currentSnapshot.entities.characters) {
-          const analysis = this.characterUnconscious.analyzeCharacter(character.id);
-          if (analysis.activeContents.length > 0) {
-            unconsciousAnalysis[character.id] = analysis;
-          }
-        }
-        this.characterUnconscious.processChapterAdvancement(config.chapterNumber);
-      }
       result.unconsciousAnalysis = unconsciousAnalysis;
-
-      // Timeline Analysis
-      if (this.currentSnapshot) {
-        for (const step of result.beats) {
-          if (step.beat) {
-            const beat = step.beat as Beat;
-            this.timelineExplorer.addEvent({
-              timestamp: Date.now(),
-              chapter: config.chapterNumber,
-              description: step.selectedProse?.slice(0, 100) ?? "",
-              characters: beat.dna.who.map(c => c.id),
-              location: beat.dna.where,
-              eventType: step.beatType as any,
-              significance: beat.tensionLevel,
-              relatedEvents: [],
-              isFlashback: false,
-              isFlashforward: false,
-            });
-          }
-        }
-        result.timelineAnalysis = this.timelineExplorer.analyzeTimeline();
-      }
+      result.timelineAnalysis = timelineAnalysis;
 
       // Voice Fingerprint Extraction (first chapter only)
       if (config.chapterNumber === 1 && !this.voiceFingerprintAnalyzer) {
@@ -654,22 +684,29 @@ export class ChapterPipelineAdapter {
       // 风格一致性检查
       await this.checkStyleConsistency(result.prose, config.chapterNumber);
 
-      // 保存知识追踪状态
-      if (this.knowledgeValidator) {
-        await this.knowledgeTracker.save();
-        progress.log("✓ 知识追踪状态已保存");
-      }
+      // 并行保存所有状态
+      const lastBeat = result.beats[result.beats.length - 1]?.beat as Beat | undefined;
+      await Promise.all([
+        // 保存知识追踪状态
+        this.knowledgeValidator
+          ? this.knowledgeTracker.save().then(() => progress.log("✓ 知识追踪状态已保存"))
+          : Promise.resolve(),
+
+        // 保存 Motif 索引
+        this.saveMotifIndex(),
+
+        // 保存状态差异
+        this.hooks.saveStateDiff({
+          chapter: config.chapterNumber,
+          beatId: lastBeat?.id,
+          events: result.events,
+        }),
+
+        // 保存状态
+        this.hooks.saveState(),
+      ]);
 
       result.completed = true;
-
-      await this.saveMotifIndex();
-      const lastBeat = result.beats[result.beats.length - 1]?.beat as Beat | undefined;
-      await this.hooks.saveStateDiff({
-        chapter: config.chapterNumber,
-        beatId: lastBeat?.id,
-        events: result.events,
-      });
-      await this.hooks.saveState();
     } catch (error) {
       this.currentProgress = null;
       result.failureReason = error instanceof Error ? error.message : String(error);

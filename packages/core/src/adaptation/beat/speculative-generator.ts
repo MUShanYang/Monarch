@@ -55,7 +55,7 @@ export interface SpeculativeGeneratorConfig {
 const DEFAULT_CONFIG: Required<SpeculativeGeneratorConfig> = {
   enableSyntacticVariants: true,
   autoRegressionThreshold: 2,
-  maxConcurrentGenerations: 3,
+  maxConcurrentGenerations: 4,
 };
 
 export interface GenerationRequest {

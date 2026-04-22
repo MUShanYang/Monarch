@@ -1282,6 +1282,40 @@ export class PipelineRunner {
       }
     }
 
+    // Extract previous chapter ending summary for continuity
+    let previousChapterEndingSummary = "";
+    if (chapterNumber > 1) {
+      try {
+        const summariesPath = join(bookDir, "story", "chapter_summaries.md");
+        const summariesContent = await readFile(summariesPath, "utf-8");
+        const lines = summariesContent.split("\n");
+        const prevChapterNum = chapterNumber - 1;
+
+        // Find the row for previous chapter
+        for (const line of lines) {
+          if (line.startsWith(`| ${prevChapterNum} |`)) {
+            const parts = line.split("|").map(p => p.trim());
+            if (parts.length >= 6) {
+              // Extract state changes (column 5) which contains location, status, goals
+              const stateChanges = parts[5] || "";
+              // Also extract last sentence of key events for immediate context
+              const keyEvents = parts[4] || "";
+              const keyEventsSentences = keyEvents.split(/[。！？]/);
+              const lastKeyEvent = keyEventsSentences.length > 1
+                ? keyEventsSentences[keyEventsSentences.length - 2]?.trim() || ""
+                : "";
+
+              previousChapterEndingSummary = `${lastKeyEvent} ${stateChanges}`.trim().substring(0, 150);
+              this.config.logger?.info(`[adaptation] 从第 ${prevChapterNum} 章提取结束状态：${previousChapterEndingSummary.substring(0, 60)}...`);
+            }
+            break;
+          }
+        }
+      } catch (error) {
+        // Ignore if chapter_summaries.md doesn't exist or can't be read
+      }
+    }
+
     const generationResult = await generateChapterWithAdaptation(bookDir, {
       chapterNumber,
       targetWordRange: [Math.floor(targetWordCount * 0.8), Math.floor(targetWordCount * 1.2)],
@@ -1299,6 +1333,7 @@ export class PipelineRunner {
       contextPackage: writeInput.contextPackage,
       ruleStack: writeInput.ruleStack,
       llmInterface,
+      previousChapterEndingSummary,
     });
 
     if (!generationResult.completed) {

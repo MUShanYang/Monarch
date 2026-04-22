@@ -122,7 +122,7 @@ See `packages/core/src/adaptation/pipeline/FLOW.md` for complete flow diagrams.
 These are architectural invariants that MUST NOT be violated:
 
 1. **NO LLM FOR LOGIC** - All logic must be pure TypeScript. LLM only generates prose.
-2. **MAX 3 PARALLEL CALLS** - `Promise.all` with LLM calls must not exceed 3 concurrent requests.
+2. **MAX 4 PARALLEL CALLS** - `Promise.all` with LLM calls must not exceed 4 concurrent requests.
 3. **EVENT SOURCING ONLY** - LLM never directly modifies state files. All state changes via event extraction and application.
 4. **NO MODIFICATION OF BASE INKOS** - All adaptation code lives in `packages/core/src/adaptation/`. Do not modify InkOS core files.
 

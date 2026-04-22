@@ -63,6 +63,7 @@ describe("adaptation chapter pipeline workflow", () => {
       minBeats: 1,
       maxRetriesPerBeat: 1,
       llmInterface,
+      previousChapterEndingSummary: "",
     });
 
     const diffPath = join(bookDir, "story", "runtime", "chapter-0001", "state-diff.json");
