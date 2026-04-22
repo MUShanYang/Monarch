@@ -324,7 +324,7 @@ export class DnaCompressor {
   }
 
   private buildMotifEcho(
-    motifIndexer: MotifIndexer | undefined,
+    motifIndexer: any | undefined,
     plannedMotif: string | undefined
   ): MotifEcho | undefined {
     if (!motifIndexer || !plannedMotif) {
@@ -335,7 +335,7 @@ export class DnaCompressor {
   }
 
   private buildSensoryEcho(
-    motifIndexer: MotifIndexer | undefined,
+    motifIndexer: any | undefined,
     plannedMotif: string | undefined
   ): SensoryEcho | undefined {
     if (!motifIndexer || !plannedMotif) {

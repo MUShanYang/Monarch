@@ -22,7 +22,7 @@ import {
   type BeatSelectionResult,
   type BeatOrchestratorLLMInterface,
 } from "./beat-orchestrator.js";
-import { MotifIndexer } from "../state/motif-indexer.js";
+import { HybridMotifSystem, createHybridMotifSystem } from "../state/motif-integration.js";
 import { MotifIndexSchema } from "../state/motif-types.js";
 import { StateCompiler } from "../state/state-compiler.js";
 import {
@@ -299,7 +299,7 @@ export class ChapterPipelineAdapter {
   private llmInterface: ChapterPipelineLLMInterface | null = null;
   private workflow: AdaptationPipelineOrchestrator | null = null;
   private currentSnapshot: EntityStateSnapshot | null = null;
-  private readonly motifIndexer = new MotifIndexer();
+  private readonly motifSystem: HybridMotifSystem;
   private curiosityLedger: CuriosityLedgerManager = createCuriosityLedgerManager();
   private readonly driftDetector = new DriftDetector();
   private readonly metabolism = new NarrativeMetabolism();
@@ -329,6 +329,7 @@ export class ChapterPipelineAdapter {
       maxRetries: this.maxRetriesPerBeat,
       selectionStrategy: "best_score",
     });
+    this.motifSystem = createHybridMotifSystem(bookDir);
   }
 
   async initialize(): Promise<void> {
@@ -336,7 +337,7 @@ export class ChapterPipelineAdapter {
     progress.startPhase("loading", "正在加载章节快照、意图编译、词法监控初始化...");
     await this.hooks.initialize();
     this.currentSnapshot = this.hooks.getSnapshot();
-    await this.loadMotifIndex();
+    await this.motifSystem.initialize();
     this.rebuildCuriosityLedger();
 
     if (this.llmInterface) {
@@ -602,7 +603,7 @@ export class ChapterPipelineAdapter {
           violations: validation!.violations,
         }));
 
-      result.motifsReferenced = this.motifIndexer.getAllMotifs();
+      result.motifsReferenced = this.motifSystem.getTopMotifs(20);
 
       // 风格一致性检查
       await this.checkStyleConsistency(result.prose, config.chapterNumber);
@@ -656,7 +657,7 @@ export class ChapterPipelineAdapter {
       hooksToAdvance: params.hooksToAdvance,
       lastBeatSummary: params.lastBeatSummary,
       chapterNumber: params.chapterNumber,
-      motifIndexer: this.motifIndexer,
+      motifIndexer: this.motifSystem,
       plannedMotif,
       maxTokens: Math.ceil(getTargetWordRange(params.beatType)[1] * 1.7) + 50,
       additionalMustInclude: governedDirectives.additionalMustInclude,
@@ -1145,7 +1146,7 @@ export class ChapterPipelineAdapter {
       return;
     }
 
-    const motifs = this.motifIndexer.scanMotifs(step.selectedProse);
+    const motifs = this.motifSystem.scanMotifs(step.selectedProse);
     if (motifs.length === 0) {
       return;
     }
@@ -1155,7 +1156,7 @@ export class ChapterPipelineAdapter {
     const valence = beat.tensionLevel >= 6 ? -0.4 : 0.4;
 
     for (const motif of motifs) {
-      this.motifIndexer.updateMotifHistory(
+      this.motifSystem.getStaticIndexer().updateMotifHistory(
         motif,
         chapterNumber,
         beat.id,
@@ -1166,7 +1167,7 @@ export class ChapterPipelineAdapter {
   }
 
   private selectPlannedMotif(lastBeatSummary: string): string | undefined {
-    const motifs = this.motifIndexer.scanMotifs(lastBeatSummary);
+    const motifs = this.motifSystem.scanMotifs(lastBeatSummary);
     return motifs[0];
   }
 
@@ -1456,19 +1457,11 @@ export class ChapterPipelineAdapter {
   }
 
   private async loadMotifIndex(): Promise<void> {
-    const path = this.getMotifIndexPath();
-    try {
-      const raw = await readFile(path, "utf-8");
-      this.motifIndexer.loadIndex(MotifIndexSchema.parse(JSON.parse(raw)));
-    } catch {
-      this.motifIndexer.clear();
-    }
+    // HybridMotifSystem 自己管理持久化，不需要手动加载
   }
 
   private async saveMotifIndex(): Promise<void> {
-    const path = this.getMotifIndexPath();
-    await mkdir(join(this.bookDir, "story", "db"), { recursive: true });
-    await writeFile(path, JSON.stringify(this.motifIndexer.getIndex(), null, 2), "utf-8");
+    // HybridMotifSystem 自己管理持久化，不需要手动保存
   }
 
   private getMotifIndexPath(): string {

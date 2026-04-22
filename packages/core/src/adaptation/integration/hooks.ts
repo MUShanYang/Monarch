@@ -26,6 +26,7 @@ import {
 } from "../llm/api-constraints.js";
 import { join } from "node:path";
 import type { MotifIndexer } from "../state/motif-indexer.js";
+import type { HybridMotifSystem } from "../state/motif-integration.js";
 
 export const AdaptationContextSchema = z.object({
   bookDir: z.string().min(1),
@@ -96,7 +97,7 @@ export class AdaptationHooks {
     hooksToAdvance: string[];
     lastBeatSummary: string;
     chapterNumber?: number;
-    motifIndexer?: MotifIndexer;
+    motifIndexer?: MotifIndexer | HybridMotifSystem;
     plannedMotif?: string;
     maxTokens?: number;
     additionalMustInclude?: string[];
