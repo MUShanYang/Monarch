@@ -44,12 +44,12 @@ export function renderHookSnapshot(
 
   const headers = language === "en"
     ? [
-      "| hook_id | start_chapter | type | status | last_advanced | expected_payoff | payoff_timing | notes |",
-      "| --- | --- | --- | --- | --- | --- | --- | --- |",
+      "| hook_id | start_chapter | type | status | last_advanced | expected_payoff | payoff_timing | is_long_term | planned_resolution_chapter | notes |",
+      "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     : [
-      "| hook_id | 起始章节 | 类型 | 状态 | 最近推进 | 预期回收 | 回收节奏 | 备注 |",
-      "| --- | --- | --- | --- | --- | --- | --- | --- |",
+      "| hook_id | 起始章节 | 类型 | 状态 | 最近推进 | 预期回收 | 回收节奏 | 是否长期 | 计划解决章节 | 备注 |",
+      "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ];
 
   return [
@@ -62,6 +62,8 @@ export function renderHookSnapshot(
       hook.lastAdvancedChapter,
       hook.expectedPayoff,
       localizeHookPayoffTiming(resolveHookPayoffTiming(hook), language),
+      hook.isLongTerm ? "true" : "false",
+      hook.plannedResolutionChapter ?? "",
       hook.notes,
     ].map((cell) => escapeTableCell(String(cell))).join(" | ")).map((row) => `| ${row} |`),
   ].join("\n");
@@ -227,8 +229,15 @@ export function normalizeHookId(value: string | undefined): string {
 
 function parsePendingHookRow(row: ReadonlyArray<string | undefined>): StoredHook {
   const legacyShape = row.length < 8;
+
+  // 新格式：10列（包含 is_long_term 和 planned_resolution_chapter）
+  // 旧格式：8列（包含 payoff_timing）
+  // 更旧格式：7列（不包含 payoff_timing）
+  const hasNewFields = row.length >= 10;
   const payoffTiming = legacyShape ? undefined : normalizeHookPayoffTiming(row[6]);
-  const notes = legacyShape ? (row[6] ?? "") : (row[7] ?? "");
+  const isLongTerm = hasNewFields ? (row[7]?.toLowerCase() === "true" || row[7] === "1") : false;
+  const plannedResolutionChapter = hasNewFields ? parseStrictChapterInteger(row[8]) : undefined;
+  const notes = hasNewFields ? (row[9] ?? "") : legacyShape ? (row[6] ?? "") : (row[7] ?? "");
 
   return {
     hookId: normalizeHookId(row[0]),
@@ -238,6 +247,8 @@ function parsePendingHookRow(row: ReadonlyArray<string | undefined>): StoredHook
     lastAdvancedChapter: parseStrictChapterInteger(row[4]),
     expectedPayoff: row[5] ?? "",
     payoffTiming,
+    isLongTerm,
+    plannedResolutionChapter,
     notes,
   };
 }

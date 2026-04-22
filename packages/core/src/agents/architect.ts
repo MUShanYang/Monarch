@@ -200,21 +200,29 @@ enableFullCastTracking: false
 
     const pendingHooksPrompt = resolvedLanguage === "en"
       ? `Initial hook pool (Markdown table):
-| hook_id | start_chapter | type | status | last_advanced_chapter | expected_payoff | payoff_timing | notes |
+| hook_id | start_chapter | type | status | last_advanced_chapter | expected_payoff | payoff_timing | is_long_term | planned_resolution_chapter | notes |
 
 Rules for the hook table:
 - Column 5 must be a pure chapter number, never natural-language description
 - During book creation, all planned hooks are still unapplied, so last_advanced_chapter = 0
 - Column 7 must be one of: immediate / near-term / mid-arc / slow-burn / endgame
+- Column 8 (is_long_term): true for hooks spanning 50+ chapters (main plot, character arcs), false for regular hooks
+- Column 9 (planned_resolution_chapter): specific chapter number where this hook should resolve (required for long-term hooks)
+- Long-term hooks examples: protagonist's ultimate goal, core mystery, main character relationship development
+- Regular hooks examples: immediate conflicts, short-term goals, scene-level mysteries
 - If you want to describe the initial clue/signal, put it in notes instead of column 5`
       : `初始伏笔池（Markdown表格）：
-| hook_id | 起始章节 | 类型 | 状态 | 最近推进 | 预期回收 | 回收节奏 | 备注 |
+| hook_id | 起始章节 | 类型 | 状态 | 最近推进 | 预期回收 | 回收节奏 | 是否长期 | 计划解决章节 | 备注 |
 
 伏笔表规则：
 - 第5列必须是纯数字章节号，不能写自然语言描述
 - 建书阶段所有伏笔都还没正式推进，所以第5列统一填 0
 - 第7列必须填写：立即 / 近期 / 中程 / 慢烧 / 终局 之一
-- 如果要说明“初始线索/最初信号”，写进备注，不要写进第5列`;
+- 第8列（是否长期）：跨越50章以上的主线伏笔（主角终极目标、核心谜团、主要角色关系发展）填 true，普通伏笔填 false
+- 第9列（计划解决章节）：填写具体的章节数字，表示这个伏笔应该在哪一章解决（长期伏笔必填）
+- 长期伏笔示例：主角的终极目标、核心谜团、主要角色关系发展
+- 普通伏笔示例：即时冲突、短期目标、场景级谜团
+- 如果要说明”初始线索/最初信号”，写进备注，不要写进第5列`;
 
     const finalRequirementsPrompt = resolvedLanguage === "en"
       ? `Generated content must:

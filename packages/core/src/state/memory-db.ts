@@ -53,6 +53,8 @@ export interface StoredHook {
   readonly lastAdvancedChapter: number;
   readonly expectedPayoff: string;
   readonly payoffTiming?: string;
+  readonly isLongTerm?: boolean;
+  readonly plannedResolutionChapter?: number;
   readonly notes: string;
 }
 
@@ -101,6 +103,8 @@ export class MemoryDB {
         last_advanced_chapter INTEGER NOT NULL DEFAULT 0,
         expected_payoff TEXT NOT NULL DEFAULT '',
         payoff_timing TEXT NOT NULL DEFAULT '',
+        is_long_term INTEGER NOT NULL DEFAULT 0,
+        planned_resolution_chapter INTEGER,
         notes TEXT NOT NULL DEFAULT ''
       );
 
@@ -112,6 +116,8 @@ export class MemoryDB {
     `);
 
     this.ensureColumn("hooks", "payoff_timing", "TEXT NOT NULL DEFAULT ''");
+    this.ensureColumn("hooks", "is_long_term", "INTEGER NOT NULL DEFAULT 0");
+    this.ensureColumn("hooks", "planned_resolution_chapter", "INTEGER");
   }
 
   private ensureColumn(table: string, column: string, definition: string): void {
@@ -301,8 +307,8 @@ export class MemoryDB {
 
   upsertHook(hook: StoredHook): void {
     this.db.prepare(
-      `INSERT OR REPLACE INTO hooks (hook_id, start_chapter, type, status, last_advanced_chapter, expected_payoff, payoff_timing, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT OR REPLACE INTO hooks (hook_id, start_chapter, type, status, last_advanced_chapter, expected_payoff, payoff_timing, is_long_term, planned_resolution_chapter, notes)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       hook.hookId,
       hook.startChapter,
@@ -311,6 +317,8 @@ export class MemoryDB {
       hook.lastAdvancedChapter,
       hook.expectedPayoff,
       hook.payoffTiming ?? "",
+      hook.isLongTerm ? 1 : 0,
+      hook.plannedResolutionChapter ?? null,
       hook.notes,
     );
   }
@@ -332,11 +340,16 @@ export class MemoryDB {
          last_advanced_chapter AS lastAdvancedChapter,
          expected_payoff AS expectedPayoff,
          payoff_timing AS payoffTiming,
+         is_long_term AS isLongTerm,
+         planned_resolution_chapter AS plannedResolutionChapter,
          notes
        FROM hooks
        WHERE lower(status) NOT IN ('resolved', 'closed', '已回收', '已解决')
        ORDER BY last_advanced_chapter DESC, start_chapter DESC, hook_id ASC`,
-    ).all() as unknown as ReadonlyArray<StoredHook>;
+    ).all().map((row: any) => ({
+      ...row,
+      isLongTerm: row.isLongTerm === 1,
+    })) as unknown as ReadonlyArray<StoredHook>;
   }
 
   // ---------------------------------------------------------------------------
