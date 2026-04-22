@@ -9,6 +9,8 @@ export const FormatNormalizerConfigSchema = z.object({
   normalizeQuotes: z.boolean().default(true),
   removeTrailingEllipsis: z.boolean().default(true),
   maxConsecutiveNewlines: z.number().int().min(1).max(5).default(2),
+  normalizeLineBreaks: z.boolean().default(true),
+  ensureParagraphBreaks: z.boolean().default(true),
 });
 export type FormatNormalizerConfig = z.infer<typeof FormatNormalizerConfigSchema>;
 
@@ -140,17 +142,48 @@ export class FormatNormalizer {
       }
     }
 
-    // 8. 规范化空行
+    // 8. 规范化换行
+    if (this.config.normalizeLineBreaks) {
+      const before = normalized;
+
+      // 移除句子中间的不必要换行（保留段落间的换行）
+      // 匹配：非句尾标点 + 换行 + 非空行
+      normalized = normalized.replace(/([^。！？\n])\n([^\n])/g, "$1$2");
+
+      // 确保对话后有换行
+      normalized = normalized.replace(/([""'])([^""'\n]{0,5})([。！？])([^\n])/g, "$1$2$3\n$4");
+
+      if (before !== normalized) {
+        changes.push("规范化了换行");
+        issuesFound += 1;
+      }
+    }
+
+    // 9. 确保段落间有适当的空行
+    if (this.config.ensureParagraphBreaks) {
+      const before = normalized;
+
+      // 在句号、问号、感叹号后如果没有换行，添加换行
+      // 但要避免对话引号内的情况
+      normalized = normalized.replace(/([。！？])([^""'\n\s])/g, "$1\n\n$2");
+
+      if (before !== normalized) {
+        changes.push("添加了段落间空行");
+        issuesFound += 1;
+      }
+    }
+
+    // 10. 规范化空行数量
     const maxNewlines = this.config.maxConsecutiveNewlines;
-    const before = normalized;
+    const beforeNewlines = normalized;
     const newlinePattern = new RegExp(`\n{${maxNewlines + 1},}`, "g");
     normalized = normalized.replace(newlinePattern, "\n".repeat(maxNewlines));
-    if (before !== normalized) {
+    if (beforeNewlines !== normalized) {
       changes.push(`限制了连续空行数量（最多 ${maxNewlines} 行）`);
       issuesFound += 1;
     }
 
-    // 9. 清理首尾空白
+    // 11. 清理首尾空白
     normalized = normalized.trim();
 
     return {
