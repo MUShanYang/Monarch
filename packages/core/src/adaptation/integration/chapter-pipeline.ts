@@ -117,6 +117,11 @@ import {
   createKnowledgeValidator,
   type KnowledgeValidationDecision,
 } from "../character/knowledge-validator.js";
+import {
+  FormatNormalizer,
+  createFormatNormalizer,
+  type FormatNormalizationResult,
+} from "../generation/format-normalizer.js";
 
 export interface ChapterPipelineLLMInterface extends BeatOrchestratorLLMInterface {
   callLLM(
@@ -332,6 +337,7 @@ export class ChapterPipelineAdapter {
   private readonly styleChecker = createStyleConsistencyChecker();
   private readonly knowledgeTracker: KnowledgeTracker;
   private knowledgeValidator: KnowledgeValidator | null = null;
+  private readonly formatNormalizer = createFormatNormalizer();
 
   constructor(bookDir: string, options?: { maxRetriesPerBeat?: number }) {
     this.bookDir = bookDir;
@@ -442,7 +448,15 @@ export class ChapterPipelineAdapter {
         result.beats.push(step);
 
         if (step.selectedProse) {
-          const cleanProse = stripThinkingTags(step.selectedProse);
+          let cleanProse = stripThinkingTags(step.selectedProse);
+
+          // 应用格式规范化
+          const normalizationResult = this.formatNormalizer.normalize(cleanProse);
+          if (normalizationResult.issuesFound > 0) {
+            cleanProse = normalizationResult.normalized;
+            progress.log(`格式规范化：修复了 ${normalizationResult.issuesFound} 个问题 (${normalizationResult.changes.join(", ")})`);
+          }
+
           result.prose += `${cleanProse}\n\n`;
           const beatWordCount = countTextLength(cleanProse);
           currentWordCount += beatWordCount;
